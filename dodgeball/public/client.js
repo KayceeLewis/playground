@@ -285,7 +285,13 @@ ws.onmessage = (event) => {
     switch (msg.type) {
         case 'player_joined':
             myPlayerNumber = msg.playerNumber;
-            connectionStatus = 'waiting';
+            if (msg.singlePlayer && msg.showInstructions) {
+                // Single player mode - show instructions and wait for player to be ready
+                isSinglePlayer = true;
+                connectionStatus = 'show_instructions';
+            } else {
+                connectionStatus = 'waiting';
+            }
             break;
         case 'opponent_joined':
             connectionStatus = 'ready';
@@ -414,6 +420,18 @@ document.addEventListener('keydown', (e) => {
 
 // Dismiss instructions on any key press
 document.addEventListener('keydown', (e) => {
+    // Handle pre-game instructions screen (single player)
+    if (connectionStatus === 'show_instructions') {
+        instructionsDismissed = true;
+        showingInstructions = false;
+        connectionStatus = 'waiting'; // Will change to countdown when server responds
+        // Signal server that player is ready to start
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ready' }));
+        }
+        return;
+    }
+    // Handle in-game instructions overlay
     if (showingInstructions && !instructionsDismissed && connectionStatus === 'playing') {
         instructionsDismissed = true;
         showingInstructions = false;
@@ -591,29 +609,15 @@ function drawArenaBackground() {
     ctx.fillStyle = '#FFD700';
     ctx.fillRect(CANVAS_WIDTH / 2 - 3, crowdY + crowdHeight + 10, 6, GROUND_Y - crowdY - crowdHeight);
 
-    // Center circle
+    // Center circle (centered in the playing area)
+    const playAreaTop = crowdY + crowdHeight + 20;
+    const playAreaHeight = GROUND_Y - playAreaTop;
+    const centerY = playAreaTop + playAreaHeight / 2;
     ctx.strokeStyle = '#FFD700';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(CANVAS_WIDTH / 2, GROUND_Y - 80, 40, 0, Math.PI * 2);
+    ctx.arc(CANVAS_WIDTH / 2, centerY, 40, 0, Math.PI * 2);
     ctx.stroke();
-
-    // Hazard triangles at center (like in the movie)
-    ctx.fillStyle = '#FFD700';
-    // Left triangle
-    ctx.beginPath();
-    ctx.moveTo(CANVAS_WIDTH / 2 - 15, GROUND_Y - 5);
-    ctx.lineTo(CANVAS_WIDTH / 2 - 35, GROUND_Y - 5);
-    ctx.lineTo(CANVAS_WIDTH / 2 - 25, GROUND_Y - 25);
-    ctx.closePath();
-    ctx.fill();
-    // Right triangle
-    ctx.beginPath();
-    ctx.moveTo(CANVAS_WIDTH / 2 + 15, GROUND_Y - 5);
-    ctx.lineTo(CANVAS_WIDTH / 2 + 35, GROUND_Y - 5);
-    ctx.lineTo(CANVAS_WIDTH / 2 + 25, GROUND_Y - 25);
-    ctx.closePath();
-    ctx.fill();
 
     // Floor/court edge
     ctx.fillStyle = '#cc0000';
@@ -752,6 +756,9 @@ function render() {
         ctx.fillText('Waiting for opponent...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
         ctx.font = '16px Arial';
         ctx.fillText(`You are ${myPlayerNumber === 'player1' ? 'Blue (Left)' : 'Red (Right)'}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+    } else if (connectionStatus === 'show_instructions') {
+        // Single player mode - show instructions before starting
+        drawControlInstructions();
     } else if (connectionStatus === 'countdown') {
         ctx.font = '72px Arial';
         ctx.fillText(countdownSeconds, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
