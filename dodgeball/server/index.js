@@ -175,24 +175,38 @@ function handleJoin(ws, roomId) {
     if (room.state === 'countdown' || room.state === 'playing') {
         // Try to reconnect to a disconnected slot
         // Check both the connected flag AND the actual WebSocket state
-        // (WebSocket might be closed but connected flag not yet updated)
+        // Also handle the race condition where old WebSocket hasn't closed yet
         let reconnectedAs = null;
 
         const p1 = room.players.player1;
         const p2 = room.players.player2;
 
-        // A slot is available if: not connected, OR websocket is closed/null, AND not AI
-        const p1Available = p1 && !p1.isAI && (!p1.connected || !p1.ws || p1.ws.readyState !== 1);
-        const p2Available = p2 && !p2.isAI && (!p2.connected || !p2.ws || p2.ws.readyState !== 1);
+        // A slot is available if:
+        // - not connected, OR websocket is closed/null, AND not AI
+        // - OR the websocket is different from current one (page navigation race condition)
+        const p1Available = p1 && !p1.isAI && (!p1.connected || !p1.ws || p1.ws.readyState !== 1 || (p1.ws !== ws && p1.ws.readyState === 1));
+        const p2Available = p2 && !p2.isAI && (!p2.connected || !p2.ws || p2.ws.readyState !== 1 || (p2.ws !== ws && p2.ws.readyState === 1));
 
         console.log(`Room ${room.id} reconnection check: p1Available=${p1Available}, p2Available=${p2Available}`);
         console.log(`  p1: connected=${p1?.connected}, wsState=${p1?.ws?.readyState}, isAI=${p1?.isAI}`);
         console.log(`  p2: connected=${p2?.connected}, wsState=${p2?.ws?.readyState}, isAI=${p2?.isAI}`);
 
         if (p1Available) {
+            // Force close old websocket if it's still open (race condition fix)
+            if (p1.ws && p1.ws !== ws && p1.ws.readyState === 1) {
+                console.log(`Force closing old p1 websocket for room ${room.id}`);
+                wsData.delete(p1.ws);
+                p1.ws.close();
+            }
             room.reconnectPlayer('player1', ws);
             reconnectedAs = 'player1';
         } else if (p2Available) {
+            // Force close old websocket if it's still open (race condition fix)
+            if (p2.ws && p2.ws !== ws && p2.ws.readyState === 1) {
+                console.log(`Force closing old p2 websocket for room ${room.id}`);
+                wsData.delete(p2.ws);
+                p2.ws.close();
+            }
             room.reconnectPlayer('player2', ws);
             reconnectedAs = 'player2';
         }
