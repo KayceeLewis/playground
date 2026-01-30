@@ -59,12 +59,19 @@
             }
         };
 
+        let pendingSinglePlayer = false;
+
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
 
             switch (msg.type) {
                 case 'room_created':
-                    showWaiting(msg.roomId);
+                    if (pendingSinglePlayer) {
+                        // Single player - redirect immediately to game
+                        window.location.href = `/game.html?room=${msg.roomId}`;
+                    } else {
+                        showWaiting(msg.roomId);
+                    }
                     break;
                 case 'player_joined':
                     // Successfully joined, wait for opponent or start
@@ -89,6 +96,7 @@
         };
 
         singlePlayerBtn.addEventListener('click', () => {
+            pendingSinglePlayer = true;
             ws.send(JSON.stringify({ type: 'create', singlePlayer: true }));
         });
 

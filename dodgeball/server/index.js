@@ -117,23 +117,33 @@ function handleNextLevel(ws) {
 
 function handleCreate(ws, singlePlayer = false) {
     const room = roomManager.createRoom();
-    const playerNumber = room.addPlayer(ws);
-    wsData.set(ws, { roomId: room.id, playerNumber });
 
-    ws.send(JSON.stringify({
-        type: 'room_created',
-        roomId: room.id,
-        shareUrl: `/game/${room.id}`
-    }));
-
-    console.log(`Room ${room.id} created${singlePlayer ? ' (single player)' : ''}`);
-
-    // For single player mode, mark it but wait for player to dismiss instructions
     if (singlePlayer) {
+        // For single player, don't add player yet - game.html will join
         room.isSinglePlayer = true;
         room.level = 1;
         room.players.player2 = { ws: null, connected: false, isAI: true };
         room.state = 'waiting_for_ready'; // Wait for player to dismiss instructions
+
+        ws.send(JSON.stringify({
+            type: 'room_created',
+            roomId: room.id,
+            singlePlayer: true
+        }));
+
+        console.log(`Room ${room.id} created (single player)`);
+    } else {
+        // Multiplayer - add player to room
+        const playerNumber = room.addPlayer(ws);
+        wsData.set(ws, { roomId: room.id, playerNumber });
+
+        ws.send(JSON.stringify({
+            type: 'room_created',
+            roomId: room.id,
+            shareUrl: `/game/${room.id}`
+        }));
+
+        console.log(`Room ${room.id} created`);
     }
 }
 
@@ -145,11 +155,17 @@ function handleJoin(ws, roomId) {
         return;
     }
 
-    // Single-player rooms are not joinable by other players
+    // Single-player rooms
     if (room.isSinglePlayer) {
-        // Check if this is player1 trying to reconnect after page navigation
-        if (!room.players.player1?.connected) {
-            room.reconnectPlayer('player1', ws);
+        // Check if player1 slot is available (first join or reconnect)
+        if (!room.players.player1 || !room.players.player1.connected) {
+            if (room.players.player1) {
+                // Reconnect
+                room.reconnectPlayer('player1', ws);
+            } else {
+                // First join
+                room.players.player1 = { ws, connected: true, isAI: false };
+            }
             wsData.set(ws, { roomId: room.id, playerNumber: 'player1' });
 
             ws.send(JSON.stringify({
@@ -160,7 +176,7 @@ function handleJoin(ws, roomId) {
                 showInstructions: room.state === 'waiting_for_ready'
             }));
 
-            console.log(`Player reconnected to single-player room ${room.id}`);
+            console.log(`Player joined single-player room ${room.id}`);
             return;
         }
         // Otherwise, single-player rooms can't be joined by others
