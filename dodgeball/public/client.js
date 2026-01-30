@@ -296,9 +296,15 @@ ws.onmessage = (event) => {
                 connectionStatus = 'show_instructions';
             } else if (msg.reconnected) {
                 // Reconnected to an active game - go straight to playing
+                // Skip instructions overlay for multiplayer reconnection
                 connectionStatus = 'playing';
+                instructionsDismissed = true;
+                showingInstructions = false;
             } else {
+                // Multiplayer waiting - no instructions needed
                 connectionStatus = 'waiting';
+                instructionsDismissed = true;
+                showingInstructions = false;
             }
             break;
         case 'opponent_joined':

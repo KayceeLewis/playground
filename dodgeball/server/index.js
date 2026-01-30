@@ -198,6 +198,10 @@ function handleJoin(ws, roomId) {
         const p1Available = p1 && !p1.isAI && (!p1.connected || !p1.ws || p1.ws.readyState !== 1);
         const p2Available = p2 && !p2.isAI && (!p2.connected || !p2.ws || p2.ws.readyState !== 1);
 
+        console.log(`Room ${room.id} reconnection check: p1Available=${p1Available}, p2Available=${p2Available}`);
+        console.log(`  p1: connected=${p1?.connected}, wsState=${p1?.ws?.readyState}, isAI=${p1?.isAI}`);
+        console.log(`  p2: connected=${p2?.connected}, wsState=${p2?.ws?.readyState}, isAI=${p2?.isAI}`);
+
         if (p1Available) {
             room.reconnectPlayer('player1', ws);
             reconnectedAs = 'player1';
@@ -224,6 +228,7 @@ function handleJoin(ws, roomId) {
         }
 
         // No slot available for reconnection
+        console.log(`Room ${room.id}: No slots available, sending 'Room is full' error`);
         ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
         return;
     }
