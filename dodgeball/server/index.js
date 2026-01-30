@@ -187,12 +187,21 @@ function handleJoin(ws, roomId) {
     // If game is in progress (countdown or playing), allow reconnection to disconnected slots
     if (room.state === 'countdown' || room.state === 'playing') {
         // Try to reconnect to a disconnected slot
+        // Check both the connected flag AND the actual WebSocket state
+        // (WebSocket might be closed but connected flag not yet updated)
         let reconnectedAs = null;
 
-        if (room.players.player1 && !room.players.player1.connected && !room.players.player1.isAI) {
+        const p1 = room.players.player1;
+        const p2 = room.players.player2;
+
+        // A slot is available if: not connected, OR websocket is closed/null, AND not AI
+        const p1Available = p1 && !p1.isAI && (!p1.connected || !p1.ws || p1.ws.readyState !== 1);
+        const p2Available = p2 && !p2.isAI && (!p2.connected || !p2.ws || p2.ws.readyState !== 1);
+
+        if (p1Available) {
             room.reconnectPlayer('player1', ws);
             reconnectedAs = 'player1';
-        } else if (room.players.player2 && !room.players.player2.connected && !room.players.player2.isAI) {
+        } else if (p2Available) {
             room.reconnectPlayer('player2', ws);
             reconnectedAs = 'player2';
         }
@@ -324,6 +333,16 @@ function startCountdown(room) {
         if (count < 0) {
             clearInterval(interval);
             room.state = 'playing';
+
+            // Check if any players are still disconnected - AI takes over
+            // This handles the case where a player couldn't reconnect during countdown
+            for (const playerNumber of ['player1', 'player2']) {
+                const player = room.players[playerNumber];
+                if (player && !player.connected && !player.isAI) {
+                    player.isAI = true;
+                    console.log(`AI taking over ${playerNumber} in room ${room.id} (failed to reconnect)`);
+                }
+            }
 
             // Create and start game
             const game = new Game(room);
