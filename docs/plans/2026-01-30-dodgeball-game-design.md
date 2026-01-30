@@ -1,8 +1,8 @@
-# Dodgeball Game Design
+# Hit Me - Game Design
 
 ## Overview
 
-A 2D side-view dodgeball game for web browsers where two players compete on the same keyboard. Each player has 3 lives. Get hit by a ball, lose a life. Last player standing wins.
+A 2D side-view dodgeball game called "Hit Me" for web browsers where two players compete on the same keyboard. Each player has 3 lives. Get hit by a ball, lose a life. Last player standing wins.
 
 ## Technology
 

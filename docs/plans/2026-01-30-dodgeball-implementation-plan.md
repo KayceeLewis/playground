@@ -1,8 +1,8 @@
-# Dodgeball Game Implementation Plan
+# Hit Me - Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build a 2D side-view dodgeball game where two local players compete using the same keyboard, with stick figure characters and lives-based elimination.
+**Goal:** Build "Hit Me" - a 2D side-view dodgeball game where two local players compete using the same keyboard, with stick figure characters and lives-based elimination.
 
 **Architecture:** Single-page HTML5 Canvas game with vanilla JavaScript. All game logic lives in one file (game.js) with a standard game loop pattern: process input → update state → render. Game state machine handles title screen, playing, and game over states.
 
@@ -27,7 +27,7 @@ Create `dodgeball/index.html`:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dodgeball</title>
+    <title>Hit Me</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -113,7 +113,7 @@ function render() {
         ctx.fillStyle = '#000000';
         ctx.font = '48px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('DODGEBALL', CANVAS_WIDTH / 2, 100);
+        ctx.fillText('HIT ME', CANVAS_WIDTH / 2, 100);
         ctx.font = '24px Arial';
         ctx.fillText('Press SPACE to start', CANVAS_WIDTH / 2, 150);
     }
@@ -129,14 +129,14 @@ Open `dodgeball/index.html` in a web browser. You should see:
 - Blue sky background
 - Brown ground at the bottom
 - White dashed center line
-- "DODGEBALL" title and "Press SPACE to start" text
+- "HIT ME" title and "Press SPACE to start" text
 
 **Step 5: Commit**
 
 ```bash
 cd ~/Documents/playground
 git add dodgeball/
-git commit -m "feat: add dodgeball project with basic game loop and title screen"
+git commit -m "feat: add hit-me project with basic game loop and title screen"
 ```
 
 ---
@@ -327,7 +327,7 @@ function render() {
         ctx.fillStyle = '#000000';
         ctx.font = '48px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('DODGEBALL', CANVAS_WIDTH / 2, 100);
+        ctx.fillText('HIT ME', CANVAS_WIDTH / 2, 100);
         ctx.font = '24px Arial';
         ctx.fillText('Press SPACE to start', CANVAS_WIDTH / 2, 150);
     } else if (gameState === 'playing' || gameState === 'gameover') {
