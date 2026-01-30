@@ -60,27 +60,11 @@ function handleMessage(ws, message) {
         case 'next_level':
             handleNextLevel(ws);
             break;
-        case 'ready':
-            handleReady(ws);
-            break;
         default:
             console.log('Unknown message type:', message.type);
     }
 }
 
-function handleReady(ws) {
-    const data = wsData.get(ws);
-    if (!data) return;
-
-    const room = roomManager.getRoom(data.roomId);
-    if (!room) return;
-
-    // Start countdown when player signals they're ready (dismissed instructions)
-    if (room.state === 'waiting_for_ready' && room.isSinglePlayer) {
-        console.log(`Player ready in room ${room.id}, starting countdown`);
-        startCountdown(room);
-    }
-}
 
 function handleNextLevel(ws) {
     const data = wsData.get(ws);
@@ -123,7 +107,6 @@ function handleCreate(ws, singlePlayer = false) {
         room.isSinglePlayer = true;
         room.level = 1;
         room.players.player2 = { ws: null, connected: false, isAI: true };
-        room.state = 'waiting_for_ready'; // Wait for player to dismiss instructions
 
         ws.send(JSON.stringify({
             type: 'room_created',
@@ -172,11 +155,15 @@ function handleJoin(ws, roomId) {
                 type: 'player_joined',
                 playerNumber: 'player1',
                 roomId: room.id,
-                singlePlayer: true,
-                showInstructions: room.state === 'waiting_for_ready'
+                singlePlayer: true
             }));
 
             console.log(`Player joined single-player room ${room.id}`);
+
+            // Start countdown immediately for single player (if not already in progress)
+            if (room.state === 'waiting') {
+                startCountdown(room);
+            }
             return;
         }
         // Otherwise, single-player rooms can't be joined by others

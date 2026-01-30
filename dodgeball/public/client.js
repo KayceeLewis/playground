@@ -162,9 +162,6 @@ let prevLives = { player1: 3, player2: 3 };
 let prevBallCount = 0;
 let gameOverSoundPlayed = false;
 
-// Control instructions state
-let showingInstructions = true;
-let instructionsDismissed = false;
 
 // Get room ID from URL
 const urlParams = new URLSearchParams(window.location.search);
@@ -290,21 +287,14 @@ ws.onmessage = (event) => {
     switch (msg.type) {
         case 'player_joined':
             myPlayerNumber = msg.playerNumber;
-            if (msg.singlePlayer && msg.showInstructions) {
-                // Single player mode - show instructions and wait for player to be ready
+            if (msg.singlePlayer) {
                 isSinglePlayer = true;
-                connectionStatus = 'show_instructions';
-            } else if (msg.reconnected) {
+            }
+            if (msg.reconnected) {
                 // Reconnected to an active game - go straight to playing
-                // Skip instructions overlay for multiplayer reconnection
                 connectionStatus = 'playing';
-                instructionsDismissed = true;
-                showingInstructions = false;
             } else {
-                // Multiplayer waiting - no instructions needed
                 connectionStatus = 'waiting';
-                instructionsDismissed = true;
-                showingInstructions = false;
             }
             break;
         case 'opponent_joined':
@@ -403,8 +393,6 @@ ws.onmessage = (event) => {
             // Reset tracking
             prevLives = { player1: 3 };
             prevBallCount = 0;
-            showingInstructions = false;
-            instructionsDismissed = true;
             break;
         case 'error':
             alert(msg.message);
@@ -436,26 +424,6 @@ document.addEventListener('keydown', (e) => {
     // ESC to return to lobby during level complete
     if (e.key === 'Escape' && gameState?.gameState === 'levelcomplete') {
         window.location.href = '/';
-    }
-});
-
-// Dismiss instructions on any key press
-document.addEventListener('keydown', (e) => {
-    // Handle pre-game instructions screen (single player)
-    if (connectionStatus === 'show_instructions') {
-        instructionsDismissed = true;
-        showingInstructions = false;
-        connectionStatus = 'waiting'; // Will change to countdown when server responds
-        // Signal server that player is ready to start
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ready' }));
-        }
-        return;
-    }
-    // Handle in-game instructions overlay
-    if (showingInstructions && !instructionsDismissed && connectionStatus === 'playing') {
-        instructionsDismissed = true;
-        showingInstructions = false;
     }
 });
 
@@ -708,60 +676,6 @@ function drawArenaBackground() {
     ctx.lineWidth = 1;
 }
 
-function drawControlInstructions() {
-    // Semi-transparent overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.textAlign = 'center';
-
-    // Title
-    ctx.font = 'bold 32px Arial';
-    ctx.fillText('CONTROLS', CANVAS_WIDTH / 2, 60);
-
-    // Control instructions
-    ctx.font = '20px Arial';
-    const controls = [
-        { key: 'A / \u2190', action: 'Move Left' },
-        { key: 'D / \u2192', action: 'Move Right' },
-        { key: 'W / \u2191', action: 'Jump' },
-        { key: 'S / \u2193', action: 'Duck' },
-        { key: 'F / /', action: 'Throw Ball' }
-    ];
-
-    let y = 110;
-    for (const ctrl of controls) {
-        ctx.fillStyle = '#FFD700';
-        ctx.font = 'bold 18px monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText(ctrl.key, CANVAS_WIDTH / 2 - 20, y);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = '18px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText(ctrl.action, CANVAS_WIDTH / 2 + 20, y);
-        y += 35;
-    }
-
-    // Objective
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#87CEEB';
-    ctx.font = 'bold 18px Arial';
-    ctx.fillText('OBJECTIVE', CANVAS_WIDTH / 2, y + 20);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '16px Arial';
-    ctx.fillText('Hit your opponent with the ball to reduce their lives!', CANVAS_WIDTH / 2, y + 45);
-    ctx.fillText('Dodge, duck, and jump to avoid getting hit!', CANVAS_WIDTH / 2, y + 70);
-
-    // Press any key
-    ctx.fillStyle = '#00FF00';
-    ctx.font = 'bold 24px Arial';
-    const pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
-    ctx.globalAlpha = pulse;
-    ctx.fillText('Press any key to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 30);
-    ctx.globalAlpha = 1;
-}
-
 // Interpolate between current render state and target server state
 function interpolateState() {
     if (!gameState || !renderState) return;
@@ -857,9 +771,6 @@ function render() {
         ctx.fillText('Waiting for opponent...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
         ctx.font = '16px Arial';
         ctx.fillText(`You are ${myPlayerNumber === 'player1' ? 'Blue (Left)' : 'Red (Right)'}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
-    } else if (connectionStatus === 'show_instructions') {
-        // Single player mode - show instructions before starting
-        drawControlInstructions();
     } else if (connectionStatus === 'countdown') {
         ctx.font = '72px Arial';
         ctx.fillText(countdownSeconds, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
@@ -982,10 +893,6 @@ function render() {
             }
         }
 
-        // Control instructions overlay (shown at start of game)
-        if (showingInstructions && !instructionsDismissed && gameState.gameState === 'playing') {
-            drawControlInstructions();
-        }
     }
 
     // Connection indicator
