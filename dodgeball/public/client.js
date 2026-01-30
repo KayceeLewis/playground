@@ -294,6 +294,9 @@ ws.onmessage = (event) => {
                 // Single player mode - show instructions and wait for player to be ready
                 isSinglePlayer = true;
                 connectionStatus = 'show_instructions';
+            } else if (msg.reconnected) {
+                // Reconnected to an active game - go straight to playing
+                connectionStatus = 'playing';
             } else {
                 connectionStatus = 'waiting';
             }

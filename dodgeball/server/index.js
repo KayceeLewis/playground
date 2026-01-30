@@ -184,6 +184,42 @@ function handleJoin(ws, roomId) {
         return;
     }
 
+    // If game is in progress (countdown or playing), allow reconnection to disconnected slots
+    if (room.state === 'countdown' || room.state === 'playing') {
+        // Try to reconnect to a disconnected slot
+        let reconnectedAs = null;
+
+        if (room.players.player1 && !room.players.player1.connected && !room.players.player1.isAI) {
+            room.reconnectPlayer('player1', ws);
+            reconnectedAs = 'player1';
+        } else if (room.players.player2 && !room.players.player2.connected && !room.players.player2.isAI) {
+            room.reconnectPlayer('player2', ws);
+            reconnectedAs = 'player2';
+        }
+
+        if (reconnectedAs) {
+            wsData.set(ws, { roomId: room.id, playerNumber: reconnectedAs });
+            ws.send(JSON.stringify({
+                type: 'player_joined',
+                playerNumber: reconnectedAs,
+                roomId: room.id,
+                reconnected: true
+            }));
+
+            // Notify other player of reconnection
+            const otherPlayer = reconnectedAs === 'player1' ? 'player2' : 'player1';
+            room.sendTo(otherPlayer, { type: 'opponent_reconnected' });
+
+            console.log(`Player reconnected to room ${room.id} as ${reconnectedAs}`);
+            return;
+        }
+
+        // No slot available for reconnection
+        ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
+        return;
+    }
+
+    // Normal join flow for waiting rooms
     if (room.isFull()) {
         ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
         return;
