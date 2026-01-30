@@ -186,6 +186,11 @@ let connectionStatus = 'connecting';
 let currentLevel = 1;
 let isSinglePlayer = false;
 
+// Client-side interpolation for smoother rendering
+let lastServerUpdate = 0;
+let renderState = null; // Interpolated state for rendering
+const LERP_FACTOR = 0.3; // How quickly to interpolate (0-1, higher = snappier)
+
 // Input state
 const keys = {
     left: false,
@@ -366,7 +371,14 @@ ws.onmessage = (event) => {
                     }
                 }
             }
+            // Store server state and update timestamp
             gameState = msg;
+            lastServerUpdate = Date.now();
+
+            // Initialize render state if needed
+            if (!renderState) {
+                renderState = JSON.parse(JSON.stringify(msg));
+            }
             break;
         case 'opponent_disconnected':
             if (msg.aiTakeover) {
@@ -741,7 +753,87 @@ function drawControlInstructions() {
     ctx.globalAlpha = 1;
 }
 
+// Interpolate between current render state and target server state
+function interpolateState() {
+    if (!gameState || !renderState) return;
+
+    // Helper to lerp a number
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    // Interpolate player1
+    if (gameState.players.player1 && renderState.players.player1) {
+        const p1 = renderState.players.player1;
+        const target = gameState.players.player1;
+        p1.x = lerp(p1.x, target.x, LERP_FACTOR);
+        p1.y = lerp(p1.y, target.y, LERP_FACTOR);
+        // Copy non-interpolated values directly
+        p1.lives = target.lives;
+        p1.hasBall = target.hasBall;
+        p1.isDucking = target.isDucking;
+        p1.isJumping = target.isJumping;
+        p1.isInvincible = target.isInvincible;
+        p1.facingRight = target.facingRight;
+        p1.throwAnimation = target.throwAnimation;
+        p1.side = target.side;
+        p1.isAI = target.isAI;
+    }
+
+    // Interpolate player2
+    if (gameState.players.player2 && renderState.players.player2) {
+        const p2 = renderState.players.player2;
+        const target = gameState.players.player2;
+        p2.x = lerp(p2.x, target.x, LERP_FACTOR);
+        p2.y = lerp(p2.y, target.y, LERP_FACTOR);
+        p2.lives = target.lives;
+        p2.hasBall = target.hasBall;
+        p2.isDucking = target.isDucking;
+        p2.isJumping = target.isJumping;
+        p2.isInvincible = target.isInvincible;
+        p2.facingRight = target.facingRight;
+        p2.throwAnimation = target.throwAnimation;
+        p2.side = target.side;
+        p2.isAI = target.isAI;
+    }
+
+    // Interpolate AI players
+    if (gameState.aiPlayers && renderState.aiPlayers) {
+        // Sync array length
+        while (renderState.aiPlayers.length < gameState.aiPlayers.length) {
+            renderState.aiPlayers.push(JSON.parse(JSON.stringify(gameState.aiPlayers[renderState.aiPlayers.length])));
+        }
+        for (let i = 0; i < gameState.aiPlayers.length; i++) {
+            const ai = renderState.aiPlayers[i];
+            const target = gameState.aiPlayers[i];
+            ai.x = lerp(ai.x, target.x, LERP_FACTOR);
+            ai.y = lerp(ai.y, target.y, LERP_FACTOR);
+            ai.lives = target.lives;
+            ai.hasBall = target.hasBall;
+            ai.isDucking = target.isDucking;
+            ai.isJumping = target.isJumping;
+            ai.isInvincible = target.isInvincible;
+            ai.facingRight = target.facingRight;
+            ai.throwAnimation = target.throwAnimation;
+            ai.side = target.side;
+            ai.isAI = target.isAI;
+        }
+    }
+
+    // Interpolate balls (faster interpolation for responsiveness)
+    if (gameState.balls) {
+        // Use server balls directly for now (balls move fast, interpolation can look weird)
+        renderState.balls = gameState.balls;
+    }
+
+    // Copy other state
+    renderState.gameState = gameState.gameState;
+    renderState.winner = gameState.winner;
+    renderState.level = gameState.level;
+}
+
 function render() {
+    // Interpolate state for smooth rendering
+    interpolateState();
+
     // Draw arena background
     drawArenaBackground();
 
@@ -766,31 +858,32 @@ function render() {
         ctx.fillText('Disconnected', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
         ctx.font = '16px Arial';
         ctx.fillText('Refresh to reconnect', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
-    } else if (gameState) {
+    } else if (renderState && gameState) {
+        // Use interpolated renderState for drawing, gameState for logic
         // Update and draw explosions
         updateExplosions();
 
         // Draw players (hide the one who lost)
-        if (gameState.players.player1.lives > 0) {
-            drawPlayer(gameState.players.player1, gameState.players.player1.isAI);
+        if (renderState.players.player1.lives > 0) {
+            drawPlayer(renderState.players.player1, renderState.players.player1.isAI);
         }
 
         // Draw player2 or AI players
-        if (isSinglePlayer && gameState.aiPlayers) {
-            for (const ai of gameState.aiPlayers) {
+        if (isSinglePlayer && renderState.aiPlayers) {
+            for (const ai of renderState.aiPlayers) {
                 if (ai.lives > 0) {
                     drawPlayer(ai, true);
                 }
             }
-        } else if (gameState.players.player2 && gameState.players.player2.lives > 0) {
-            drawPlayer(gameState.players.player2, gameState.players.player2.isAI);
+        } else if (renderState.players.player2 && renderState.players.player2.lives > 0) {
+            drawPlayer(renderState.players.player2, renderState.players.player2.isAI);
         }
 
         // Draw explosions on top
         drawExplosions();
 
         // Draw balls
-        for (const ball of gameState.balls) {
+        for (const ball of renderState.balls) {
             if (ball.active) {
                 drawBall(ball);
             }

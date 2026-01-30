@@ -14,6 +14,8 @@ export class Game {
         this.room = room;
         const level = room.level || 1;
         const numAI = room.isSinglePlayer ? level : 1;
+        this.lastBroadcast = 0;
+        this.broadcastInterval = 50; // Send updates every 50ms (20/sec)
 
         this.state = {
             gameState: 'playing',
@@ -122,8 +124,10 @@ export class Game {
         // Check game over
         this.checkGameOver();
 
-        // Broadcast state to clients (throttled to ~30 times/sec)
-        if (Date.now() % 2 === 0) {
+        // Broadcast state to clients (throttled to 20/sec for network efficiency)
+        const now = Date.now();
+        if (now - this.lastBroadcast >= this.broadcastInterval) {
+            this.lastBroadcast = now;
             this.broadcastState();
         }
     }
