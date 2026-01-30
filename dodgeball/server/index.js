@@ -90,6 +90,23 @@ function handleJoin(ws, roomId) {
         return;
     }
 
+    // Check if this is a single-player room needing reconnection
+    // (player1 disconnected during page navigation, player2 is AI)
+    if (room.players.player2?.isAI && !room.players.player1?.connected) {
+        // Reconnect as player1
+        room.reconnectPlayer('player1', ws);
+        wsData.set(ws, { roomId: room.id, playerNumber: 'player1' });
+
+        ws.send(JSON.stringify({
+            type: 'player_joined',
+            playerNumber: 'player1',
+            roomId: room.id
+        }));
+
+        console.log(`Player reconnected to single-player room ${room.id}`);
+        return;
+    }
+
     if (room.isFull()) {
         ws.send(JSON.stringify({ type: 'error', message: 'Room is full' }));
         return;
@@ -139,16 +156,39 @@ function handleDisconnect(ws) {
 
     room.removePlayer(data.playerNumber);
 
-    // Notify other player
+    // Notify other player (only if not AI)
     const otherPlayer = data.playerNumber === 'player1' ? 'player2' : 'player1';
-    room.sendTo(otherPlayer, {
-        type: 'opponent_disconnected',
-        aiTakeover: room.state === 'playing'
-    });
+    if (!room.players[otherPlayer]?.isAI) {
+        room.sendTo(otherPlayer, {
+            type: 'opponent_disconnected',
+            aiTakeover: room.state === 'playing'
+        });
+    }
 
     console.log(`Player ${data.playerNumber} disconnected from room ${room.id}`);
 
-    // Clean up empty rooms
+    // For single-player rooms during countdown, keep room alive briefly for reconnection
+    const isSinglePlayerRoom = room.players.player2?.isAI;
+    const isCountdownOrPlaying = room.state === 'countdown' || room.state === 'playing';
+
+    if (isSinglePlayerRoom && isCountdownOrPlaying) {
+        // Give 10 seconds for page navigation/reconnection
+        setTimeout(() => {
+            const currentRoom = roomManager.getRoom(data.roomId);
+            if (currentRoom && currentRoom.isEmpty()) {
+                const game = games.get(data.roomId);
+                if (game) {
+                    game.stop();
+                    games.delete(data.roomId);
+                }
+                roomManager.deleteRoom(data.roomId);
+                console.log(`Room ${data.roomId} deleted (single-player timeout)`);
+            }
+        }, 10000);
+        return;
+    }
+
+    // Clean up empty rooms immediately for multiplayer
     if (room.isEmpty()) {
         const game = games.get(room.id);
         if (game) {
