@@ -192,9 +192,13 @@ let gameOverSoundPlayed = false;
 let prevLives = { player1: 3, player2: 3 };
 let prevBallCount = 0;
 
+// Rematch state
+let rematchRequested = false;
+let opponentWantsRematch = false;
+
 // Client-side interpolation
 let lastServerUpdate = 0;
-const LERP_FACTOR = 0.3;
+const LERP_FACTOR = 0.5; // Higher = snappier movement (0.3 was too sluggish for multiplayer)
 
 // Input state
 const keys = { left: false, right: false, jump: false, duck: false, throw: false };
@@ -342,6 +346,23 @@ ws.onmessage = (event) => {
             prevBallCount = 0;
             break;
 
+        case 'rematch_requested':
+            // Opponent wants to play again
+            opponentWantsRematch = true;
+            break;
+
+        case 'rematch_starting':
+            // Both players agreed, game is restarting
+            rematchRequested = false;
+            opponentWantsRematch = false;
+            gameOverSoundPlayed = false;
+            prevLives = { player1: 3, player2: 3 };
+            prevBallCount = 0;
+            renderState = null;
+            gameState = null;
+            appState = 'countdown';
+            break;
+
         case 'error':
             showError(msg.message);
             break;
@@ -401,6 +422,8 @@ function switchToLobby() {
     gameOverSoundPlayed = false;
     prevLives = { player1: 3, player2: 3 };
     prevBallCount = 0;
+    rematchRequested = false;
+    opponentWantsRematch = false;
     currentLevel = 1;
 
     // Reset URL
@@ -455,20 +478,41 @@ function sendInput() {
 }
 
 document.addEventListener('keydown', (e) => {
-    // Game over / level complete actions
-    if (e.key === ' ') {
-        if (gameState?.gameState === 'gameover') {
+    // Game over actions
+    if (gameState?.gameState === 'gameover') {
+        if (e.key === ' ' || e.key === 'r' || e.key === 'R') {
+            // Request or accept rematch
+            if (!rematchRequested) {
+                rematchRequested = true;
+                if (ws.readyState === WebSocket.OPEN) {
+                    if (opponentWantsRematch) {
+                        ws.send(JSON.stringify({ type: 'accept_rematch' }));
+                    } else {
+                        ws.send(JSON.stringify({ type: 'request_rematch' }));
+                    }
+                }
+            }
+            return;
+        }
+        if (e.key === 'Escape') {
             switchToLobby();
             return;
-        } else if (gameState?.gameState === 'levelcomplete') {
+        }
+        return; // Don't process other keys during game over
+    }
+
+    // Level complete actions
+    if (gameState?.gameState === 'levelcomplete') {
+        if (e.key === ' ') {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'next_level' }));
             }
             return;
         }
-    }
-    if (e.key === 'Escape' && gameState?.gameState === 'levelcomplete') {
-        switchToLobby();
+        if (e.key === 'Escape') {
+            switchToLobby();
+            return;
+        }
         return;
     }
 
@@ -935,9 +979,35 @@ function render() {
             ctx.fillStyle = '#FFFFFF';
             if (isSinglePlayer) {
                 ctx.fillText(`Reached Level ${currentLevel}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
-                ctx.fillText('Press SPACE to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
+                // Show rematch option for single player
+                if (rematchRequested) {
+                    ctx.fillStyle = '#88FF88';
+                    ctx.fillText('Starting new game...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
+                } else {
+                    ctx.fillText('Press SPACE or R to play again', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
+                }
+                ctx.fillStyle = '#AAAAAA';
+                ctx.font = '18px Arial';
+                ctx.fillText('Press ESC to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
             } else {
-                ctx.fillText('Press SPACE to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+                // Multiplayer rematch UI
+                if (rematchRequested && opponentWantsRematch) {
+                    ctx.fillStyle = '#88FF88';
+                    ctx.fillText('Starting rematch...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+                } else if (rematchRequested) {
+                    ctx.fillStyle = '#FFFF88';
+                    ctx.fillText('Waiting for opponent...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+                } else if (opponentWantsRematch) {
+                    ctx.fillStyle = '#88FF88';
+                    ctx.fillText('Opponent wants rematch!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.fillText('Press SPACE or R to accept', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
+                } else {
+                    ctx.fillText('Press SPACE or R for rematch', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+                }
+                ctx.fillStyle = '#AAAAAA';
+                ctx.font = '18px Arial';
+                ctx.fillText('Press ESC to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
             }
         }
     }

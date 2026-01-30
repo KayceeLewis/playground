@@ -15,7 +15,7 @@ export class Game {
         const level = room.level || 1;
         const numAI = room.isSinglePlayer ? level : 1;
         this.lastBroadcast = 0;
-        this.broadcastInterval = 50; // Send updates every 50ms (20/sec)
+        this.broadcastInterval = 33; // Send updates every 33ms (30/sec) for smoother multiplayer
 
         this.state = {
             gameState: 'playing',

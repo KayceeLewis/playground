@@ -60,6 +60,12 @@ function handleMessage(ws, message) {
         case 'next_level':
             handleNextLevel(ws);
             break;
+        case 'request_rematch':
+            handleRematchRequest(ws);
+            break;
+        case 'accept_rematch':
+            handleRematchAccept(ws);
+            break;
         default:
             console.log('Unknown message type:', message.type);
     }
@@ -97,6 +103,89 @@ function handleNextLevel(ws) {
         // Start countdown for next level
         startCountdown(room);
     }
+}
+
+function handleRematchRequest(ws) {
+    const data = wsData.get(ws);
+    if (!data) return;
+
+    const room = roomManager.getRoom(data.roomId);
+    if (!room || room.state !== 'gameover') return;
+
+    // Mark this player as wanting a rematch
+    const player = room.players[data.playerNumber];
+    if (player) {
+        player.wantsRematch = true;
+    }
+
+    // Notify the other player
+    const otherPlayer = data.playerNumber === 'player1' ? 'player2' : 'player1';
+    room.sendTo(otherPlayer, { type: 'rematch_requested', from: data.playerNumber });
+
+    console.log(`Player ${data.playerNumber} requested rematch in room ${room.id}`);
+
+    // Check if both players want rematch (for single player, auto-accept)
+    checkRematchReady(room);
+}
+
+function handleRematchAccept(ws) {
+    const data = wsData.get(ws);
+    if (!data) return;
+
+    const room = roomManager.getRoom(data.roomId);
+    if (!room || room.state !== 'gameover') return;
+
+    // Mark this player as wanting a rematch
+    const player = room.players[data.playerNumber];
+    if (player) {
+        player.wantsRematch = true;
+    }
+
+    console.log(`Player ${data.playerNumber} accepted rematch in room ${room.id}`);
+
+    checkRematchReady(room);
+}
+
+function checkRematchReady(room) {
+    const p1 = room.players.player1;
+    const p2 = room.players.player2;
+
+    // For single player, only need p1 to want rematch
+    if (room.isSinglePlayer) {
+        if (p1?.wantsRematch) {
+            startRematch(room);
+        }
+        return;
+    }
+
+    // For multiplayer, both need to want rematch
+    if (p1?.wantsRematch && p2?.wantsRematch) {
+        startRematch(room);
+    }
+}
+
+function startRematch(room) {
+    // Clean up old game
+    const oldGame = games.get(room.id);
+    if (oldGame) {
+        oldGame.stop();
+        games.delete(room.id);
+    }
+
+    // Reset rematch flags
+    if (room.players.player1) room.players.player1.wantsRematch = false;
+    if (room.players.player2) room.players.player2.wantsRematch = false;
+
+    // Reset level for single player
+    if (room.isSinglePlayer) {
+        room.level = 1;
+    }
+
+    console.log(`Starting rematch in room ${room.id}`);
+
+    // Notify players and start countdown
+    room.broadcast({ type: 'rematch_starting' });
+    startCountdown(room);
 }
 
 function handleCreate(ws, singlePlayer = false) {
