@@ -75,6 +75,7 @@ export class Game {
             ai.isAI = true;
             this.state.aiPlayers.push(ai);
             this.state.respawnTimers[`ai${i + 1}`] = 0;
+            console.log(`Created AI${i + 1} at x=${x}`);
         }
     }
 
@@ -423,16 +424,18 @@ export class Game {
 
             // Check collision with player2 or AI players
             if (this.room.isSinglePlayer) {
-                for (const ai of this.state.aiPlayers) {
-                    if (ai.lives <= 0) continue;
-                    if (ball.owner === ai.side) continue;
-                    if (ai.isInvincible) continue;
+                for (let i = 0; i < this.state.aiPlayers.length; i++) {
+                    const ai = this.state.aiPlayers[i];
+                    if (ai.lives <= 0) continue;  // Skip dead AI
+                    if (ball.owner === ai.side) continue;  // Skip AI's own balls
+                    if (ai.isInvincible) continue;  // Skip invincible AI
 
                     if (this.checkBallPlayerCollision(ball, ai, ball.size || 8)) {
                         ball.active = false;
                         ai.lives--;
                         ai.isInvincible = true;
                         ai.invincibleTimer = INVINCIBLE_TIME;
+                        console.log(`Ball hit AI${i + 1}, lives now: ${ai.lives}`);
                         break;
                     }
                 }

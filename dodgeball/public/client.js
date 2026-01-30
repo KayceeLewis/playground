@@ -286,14 +286,17 @@ ws.onmessage = (event) => {
 
                 if (isSinglePlayer && msg.aiPlayers) {
                     msg.aiPlayers.forEach((ai, idx) => {
-                        const prevAI = prevLives[`ai${idx}`] || 3;
-                        if (ai.lives < prevAI) {
+                        const key = `ai${idx}`;
+                        const prevAI = prevLives[key];
+                        // Only trigger if we have a valid previous value and lives decreased
+                        if (prevAI !== undefined && ai.lives < prevAI) {
                             playHitSound();
-                            if (ai.lives <= 0) {
+                            // Only explode if this is the killing blow (going from 1+ to 0 or less)
+                            if (ai.lives <= 0 && prevAI > 0) {
                                 createExplosion(ai.x, ai.y - 30, '#FF0000');
                             }
                         }
-                        prevLives[`ai${idx}`] = ai.lives;
+                        prevLives[key] = ai.lives;
                     });
                 } else if (msg.players.player2) {
                     if (msg.players.player2.lives < (prevLives.player2 || 3)) {
@@ -342,6 +345,7 @@ ws.onmessage = (event) => {
         case 'level_up':
             currentLevel = msg.level;
             gameOverSoundPlayed = false;
+            // Reset all life tracking - AI lives will be set on first state update
             prevLives = { player1: 3 };
             prevBallCount = 0;
             break;
