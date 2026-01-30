@@ -196,15 +196,6 @@ let prevBallCount = 0;
 let lastServerUpdate = 0;
 const LERP_FACTOR = 0.3;
 
-// Client-side prediction constants (must match server)
-const PLAYER_SPEED = 5;
-const JUMP_FORCE = -12;
-const GRAVITY = 0.5;
-
-// Local player prediction state
-let localPlayerState = null;
-let localVelocityY = 0;
-
 // Input state
 const keys = { left: false, right: false, jump: false, duck: false, throw: false };
 
@@ -407,8 +398,6 @@ function switchToLobby() {
     isSinglePlayer = false;
     gameState = null;
     renderState = null;
-    localPlayerState = null;
-    localVelocityY = 0;
     gameOverSoundPlayed = false;
     prevLives = { player1: 3, player2: 3 };
     prevBallCount = 0;
@@ -770,113 +759,22 @@ function drawArenaBackground() {
     ctx.lineWidth = 1;
 }
 
-// Apply client-side prediction for local player
-function applyLocalPrediction() {
-    if (!localPlayerState || !myPlayerNumber || appState !== 'playing') return;
-
-    const player = localPlayerState;
-    const serverPlayer = gameState?.players?.[myPlayerNumber];
-    if (!serverPlayer || serverPlayer.lives <= 0) return;
-
-    // Horizontal movement
-    if (keys.left && !keys.duck) {
-        player.x -= PLAYER_SPEED;
-        player.facingRight = false;
-    }
-    if (keys.right && !keys.duck) {
-        player.x += PLAYER_SPEED;
-        player.facingRight = true;
-    }
-
-    // Boundary constraints (match server logic)
-    const minX = player.side === 'left' ? 30 : CANVAS_WIDTH / 2 + 30;
-    const maxX = player.side === 'left' ? CANVAS_WIDTH / 2 - 30 : CANVAS_WIDTH - 30;
-    player.x = Math.max(minX, Math.min(maxX, player.x));
-
-    // Jumping
-    if (keys.jump && !player.isJumping && !keys.duck) {
-        localVelocityY = JUMP_FORCE;
-        player.isJumping = true;
-    }
-
-    // Apply gravity
-    localVelocityY += GRAVITY;
-    player.y += localVelocityY;
-
-    // Ground collision
-    if (player.y >= GROUND_Y) {
-        player.y = GROUND_Y;
-        localVelocityY = 0;
-        player.isJumping = false;
-    }
-
-    // Ducking
-    player.isDucking = keys.duck && !player.isJumping;
-
-    // Reconcile with server - smoothly correct towards server position
-    // This prevents drift while keeping responsiveness
-    const serverX = serverPlayer.x;
-    const serverY = serverPlayer.y;
-    const drift = Math.abs(player.x - serverX) + Math.abs(player.y - serverY);
-
-    // If too far from server, snap back (server is authoritative)
-    if (drift > 50) {
-        player.x = serverX;
-        player.y = serverY;
-        localVelocityY = 0;
-    } else if (drift > 5) {
-        // Gentle correction towards server position
-        player.x += (serverX - player.x) * 0.1;
-        player.y += (serverY - player.y) * 0.1;
-    }
-
-    // Always sync state that we can't predict (lives, ball, etc)
-    player.lives = serverPlayer.lives;
-    player.hasBall = serverPlayer.hasBall;
-    player.isInvincible = serverPlayer.isInvincible;
-    player.throwAnimation = serverPlayer.throwAnimation;
-    player.side = serverPlayer.side;
-    player.isAI = serverPlayer.isAI;
-}
-
 function interpolateState() {
     if (!gameState || !renderState) return;
 
     const lerp = (a, b, t) => a + (b - a) * t;
 
-    // Initialize local player state from server if needed
-    if (!localPlayerState && myPlayerNumber && gameState.players[myPlayerNumber]) {
-        localPlayerState = JSON.parse(JSON.stringify(gameState.players[myPlayerNumber]));
-        localVelocityY = 0;
-    }
-
-    // For local player: use predicted state
-    // For opponent: use interpolated server state
-    const isPlayer1Local = myPlayerNumber === 'player1';
-    const isPlayer2Local = myPlayerNumber === 'player2';
-
     if (gameState.players.player1 && renderState.players.player1) {
         const p1 = renderState.players.player1;
         const target = gameState.players.player1;
-
-        if (isPlayer1Local && localPlayerState) {
-            // Use predicted position for local player
-            p1.x = localPlayerState.x;
-            p1.y = localPlayerState.y;
-            p1.isDucking = localPlayerState.isDucking;
-            p1.isJumping = localPlayerState.isJumping;
-            p1.facingRight = localPlayerState.facingRight;
-        } else {
-            // Interpolate opponent
-            p1.x = lerp(p1.x, target.x, LERP_FACTOR);
-            p1.y = lerp(p1.y, target.y, LERP_FACTOR);
-            p1.isDucking = target.isDucking;
-            p1.isJumping = target.isJumping;
-            p1.facingRight = target.facingRight;
-        }
+        p1.x = lerp(p1.x, target.x, LERP_FACTOR);
+        p1.y = lerp(p1.y, target.y, LERP_FACTOR);
         p1.lives = target.lives;
         p1.hasBall = target.hasBall;
+        p1.isDucking = target.isDucking;
+        p1.isJumping = target.isJumping;
         p1.isInvincible = target.isInvincible;
+        p1.facingRight = target.facingRight;
         p1.throwAnimation = target.throwAnimation;
         p1.side = target.side;
         p1.isAI = target.isAI;
@@ -885,25 +783,14 @@ function interpolateState() {
     if (gameState.players.player2 && renderState.players.player2) {
         const p2 = renderState.players.player2;
         const target = gameState.players.player2;
-
-        if (isPlayer2Local && localPlayerState) {
-            // Use predicted position for local player
-            p2.x = localPlayerState.x;
-            p2.y = localPlayerState.y;
-            p2.isDucking = localPlayerState.isDucking;
-            p2.isJumping = localPlayerState.isJumping;
-            p2.facingRight = localPlayerState.facingRight;
-        } else {
-            // Interpolate opponent
-            p2.x = lerp(p2.x, target.x, LERP_FACTOR);
-            p2.y = lerp(p2.y, target.y, LERP_FACTOR);
-            p2.isDucking = target.isDucking;
-            p2.isJumping = target.isJumping;
-            p2.facingRight = target.facingRight;
-        }
+        p2.x = lerp(p2.x, target.x, LERP_FACTOR);
+        p2.y = lerp(p2.y, target.y, LERP_FACTOR);
         p2.lives = target.lives;
         p2.hasBall = target.hasBall;
+        p2.isDucking = target.isDucking;
+        p2.isJumping = target.isJumping;
         p2.isInvincible = target.isInvincible;
+        p2.facingRight = target.facingRight;
         p2.throwAnimation = target.throwAnimation;
         p2.side = target.side;
         p2.isAI = target.isAI;
@@ -945,8 +832,6 @@ function interpolateState() {
 let renderLoopStarted = false;
 
 function render() {
-    // Apply client-side prediction for responsive local movement
-    applyLocalPrediction();
     interpolateState();
     drawArenaBackground();
 

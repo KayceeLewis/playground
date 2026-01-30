@@ -1,5 +1,7 @@
 function generateRoomId() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    // Exclude A, D, W, S, F (game controls) so players can type codes while on game page
+    // Also exclude O, I, L, 0, 1 (ambiguous characters)
+    const chars = 'BCEGHJKMNPQRTUVXYZ23456789';
     let result = '';
     for (let i = 0; i < 6; i++) {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
