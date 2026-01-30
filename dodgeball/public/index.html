@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hit Me! - Online Dodgeball</title>
     <link rel="stylesheet" href="lobby.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
+    <!-- Lobby UI -->
+    <div id="lobbyContainer" class="container">
         <h1>HIT ME!</h1>
         <p class="subtitle">Online Dodgeball</p>
 
@@ -56,114 +58,11 @@
         <div id="error" class="error hidden"></div>
     </div>
 
-    <script>
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
+    <!-- Game Canvas (hidden initially) -->
+    <div id="gameContainer" class="hidden">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+    </div>
 
-        const menuEl = document.getElementById('menu');
-        const waitingEl = document.getElementById('waiting');
-        const errorEl = document.getElementById('error');
-        const createBtn = document.getElementById('createBtn');
-        const joinBtn = document.getElementById('joinBtn');
-        const roomCodeInput = document.getElementById('roomCode');
-        const shareUrlInput = document.getElementById('shareUrl');
-        const roomCodeDisplay = document.getElementById('roomCodeDisplay');
-        const copyBtn = document.getElementById('copyBtn');
-        const singlePlayerBtn = document.getElementById('singlePlayerBtn');
-
-        // Check if joining from URL
-        const pathMatch = window.location.pathname.match(/^\/game\/([A-Z0-9]{6})$/i);
-
-        ws.onopen = () => {
-            if (pathMatch) {
-                // Auto-join from URL
-                ws.send(JSON.stringify({ type: 'join', roomId: pathMatch[1] }));
-            }
-        };
-
-        let pendingSinglePlayer = false;
-
-        ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-
-            switch (msg.type) {
-                case 'room_created':
-                    if (pendingSinglePlayer) {
-                        // Single player - redirect immediately to game
-                        window.location.href = `/game.html?room=${msg.roomId}`;
-                    } else {
-                        showWaiting(msg.roomId);
-                    }
-                    break;
-                case 'player_joined':
-                    // Successfully joined, wait for opponent or start
-                    if (pathMatch) {
-                        showWaiting(msg.roomId);
-                    }
-                    break;
-                case 'opponent_joined':
-                case 'game_start':
-                    // Redirect to game
-                    window.location.href = `/game.html?room=${roomCodeDisplay.textContent || pathMatch?.[1]}`;
-                    break;
-                case 'countdown':
-                    // Redirect to game on countdown
-                    const roomId = roomCodeDisplay.textContent || pathMatch?.[1];
-                    window.location.href = `/game.html?room=${roomId}`;
-                    break;
-                case 'error':
-                    showError(msg.message);
-                    break;
-            }
-        };
-
-        singlePlayerBtn.addEventListener('click', () => {
-            pendingSinglePlayer = true;
-            ws.send(JSON.stringify({ type: 'create', singlePlayer: true }));
-        });
-
-        createBtn.addEventListener('click', () => {
-            ws.send(JSON.stringify({ type: 'create' }));
-        });
-
-        joinBtn.addEventListener('click', () => {
-            const code = roomCodeInput.value.trim().toUpperCase();
-            if (code.length === 6) {
-                ws.send(JSON.stringify({ type: 'join', roomId: code }));
-            } else {
-                showError('Please enter a 6-character room code');
-            }
-        });
-
-        roomCodeInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') joinBtn.click();
-        });
-
-        copyBtn.addEventListener('click', () => {
-            shareUrlInput.select();
-            document.execCommand('copy');
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => copyBtn.textContent = 'Copy', 2000);
-        });
-
-        function showWaiting(roomId) {
-            menuEl.classList.add('hidden');
-            waitingEl.classList.remove('hidden');
-            errorEl.classList.add('hidden');
-
-            const url = `${window.location.origin}/game/${roomId}`;
-            shareUrlInput.value = url;
-            roomCodeDisplay.textContent = roomId;
-
-            // Update URL without reload
-            history.pushState({}, '', `/game/${roomId}`);
-        }
-
-        function showError(message) {
-            errorEl.textContent = message;
-            errorEl.classList.remove('hidden');
-            setTimeout(() => errorEl.classList.add('hidden'), 3000);
-        }
-    </script>
+    <script src="client.js"></script>
 </body>
 </html>
