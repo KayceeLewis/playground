@@ -7,6 +7,161 @@ const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 400;
 const GROUND_Y = 350;
 
+// Audio context for sound effects
+let audioCtx = null;
+function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioCtx;
+}
+
+// Sound effects using Web Audio API
+function playThrowSound() {
+    try {
+        const ctx = getAudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        oscillator.frequency.setValueAtTime(400, ctx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+        oscillator.start(ctx.currentTime);
+        oscillator.stop(ctx.currentTime + 0.1);
+    } catch (e) {}
+}
+
+function playHitSound() {
+    try {
+        const ctx = getAudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.setValueAtTime(150, ctx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+        oscillator.start(ctx.currentTime);
+        oscillator.stop(ctx.currentTime + 0.2);
+    } catch (e) {}
+}
+
+function playExplosionSound() {
+    try {
+        const ctx = getAudioContext();
+        // Create noise for explosion
+        const bufferSize = ctx.sampleRate * 0.5;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+        }
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const gainNode = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1000, ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.5);
+        noise.connect(filter);
+        filter.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        noise.start(ctx.currentTime);
+    } catch (e) {}
+}
+
+function playWinSound() {
+    try {
+        const ctx = getAudioContext();
+        const notes = [523, 659, 784, 1047]; // C5, E5, G5, C6
+        notes.forEach((freq, i) => {
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+            oscillator.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.15);
+            gainNode.gain.setValueAtTime(0.2, ctx.currentTime + i * 0.15);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.15 + 0.3);
+            oscillator.start(ctx.currentTime + i * 0.15);
+            oscillator.stop(ctx.currentTime + i * 0.15 + 0.3);
+        });
+    } catch (e) {}
+}
+
+function playLoseSound() {
+    try {
+        const ctx = getAudioContext();
+        const notes = [400, 350, 300, 200]; // Descending sad tones
+        notes.forEach((freq, i) => {
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+            oscillator.type = 'sawtooth';
+            oscillator.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.2);
+            gainNode.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.2);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.2 + 0.25);
+            oscillator.start(ctx.currentTime + i * 0.2);
+            oscillator.stop(ctx.currentTime + i * 0.2 + 0.25);
+        });
+    } catch (e) {}
+}
+
+// Explosion particles
+let explosionParticles = [];
+
+function createExplosion(x, y, color) {
+    const particleCount = 30;
+    for (let i = 0; i < particleCount; i++) {
+        const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
+        const speed = 3 + Math.random() * 5;
+        explosionParticles.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 2,
+            life: 1,
+            color,
+            size: 3 + Math.random() * 4
+        });
+    }
+}
+
+function updateExplosions() {
+    for (let i = explosionParticles.length - 1; i >= 0; i--) {
+        const p = explosionParticles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.2; // gravity
+        p.life -= 0.02;
+        if (p.life <= 0) {
+            explosionParticles.splice(i, 1);
+        }
+    }
+}
+
+function drawExplosions() {
+    for (const p of explosionParticles) {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+}
+
+// Track previous state for sound triggers
+let prevLives = { player1: 3, player2: 3 };
+let prevBallCount = 0;
+let gameOverSoundPlayed = false;
+
 // Get room ID from URL
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get('room');
@@ -138,6 +293,41 @@ ws.onmessage = (event) => {
             countdownSeconds = null;
             break;
         case 'state':
+            // Check for sound triggers before updating state
+            if (gameState) {
+                // Ball thrown (more balls than before)
+                if (msg.balls.length > prevBallCount) {
+                    playThrowSound();
+                }
+                prevBallCount = msg.balls.length;
+
+                // Player got hit (lives decreased)
+                if (msg.players.player1.lives < prevLives.player1) {
+                    playHitSound();
+                    if (msg.players.player1.lives <= 0) {
+                        createExplosion(msg.players.player1.x, msg.players.player1.y - 30, '#0000FF');
+                    }
+                }
+                if (msg.players.player2.lives < prevLives.player2) {
+                    playHitSound();
+                    if (msg.players.player2.lives <= 0) {
+                        createExplosion(msg.players.player2.x, msg.players.player2.y - 30, '#FF0000');
+                    }
+                }
+                prevLives.player1 = msg.players.player1.lives;
+                prevLives.player2 = msg.players.player2.lives;
+
+                // Game over
+                if (msg.gameState === 'gameover' && !gameOverSoundPlayed) {
+                    gameOverSoundPlayed = true;
+                    playExplosionSound();
+                    const youWon = msg.winner === myPlayerNumber;
+                    setTimeout(() => {
+                        if (youWon) playWinSound();
+                        else playLoseSound();
+                    }, 300);
+                }
+            }
             gameState = msg;
             break;
         case 'opponent_disconnected':
@@ -297,9 +487,19 @@ function render() {
         ctx.font = '16px Arial';
         ctx.fillText('Refresh to reconnect', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
     } else if (gameState) {
-        // Draw players
-        drawPlayer(gameState.players.player1, gameState.players.player1.isAI);
-        drawPlayer(gameState.players.player2, gameState.players.player2.isAI);
+        // Update and draw explosions
+        updateExplosions();
+
+        // Draw players (hide the one who lost)
+        if (gameState.players.player1.lives > 0) {
+            drawPlayer(gameState.players.player1, gameState.players.player1.isAI);
+        }
+        if (gameState.players.player2.lives > 0) {
+            drawPlayer(gameState.players.player2, gameState.players.player2.isAI);
+        }
+
+        // Draw explosions on top
+        drawExplosions();
 
         // Draw balls
         for (const ball of gameState.balls) {
