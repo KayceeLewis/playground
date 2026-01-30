@@ -74,6 +74,7 @@ export class Game {
     }
 
     start() {
+        this.startTime = Date.now(); // Track when game started for reconnection grace period
         // Run game loop at 60 ticks per second
         this.tickInterval = setInterval(() => this.tick(), 1000 / 60);
     }

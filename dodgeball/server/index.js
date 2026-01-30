@@ -176,22 +176,35 @@ function handleJoin(ws, roomId) {
         // Try to reconnect to a disconnected slot
         // Check both the connected flag AND the actual WebSocket state
         // Also handle the race condition where old WebSocket hasn't closed yet
+        // Allow taking over from AI within first 5 seconds of game (grace period for page navigation)
         let reconnectedAs = null;
 
         const p1 = room.players.player1;
         const p2 = room.players.player2;
 
-        // A slot is available if:
-        // - not connected, OR websocket is closed/null, AND not AI
-        // - OR the websocket is different from current one (page navigation race condition)
-        const p1Available = p1 && !p1.isAI && (!p1.connected || !p1.ws || p1.ws.readyState !== 1 || (p1.ws !== ws && p1.ws.readyState === 1));
-        const p2Available = p2 && !p2.isAI && (!p2.connected || !p2.ws || p2.ws.readyState !== 1 || (p2.ws !== ws && p2.ws.readyState === 1));
+        const game = games.get(room.id);
+        const gameJustStarted = !game || (Date.now() - (game.startTime || 0) < 5000);
 
-        console.log(`Room ${room.id} reconnection check: p1Available=${p1Available}, p2Available=${p2Available}`);
+        // A slot is available if:
+        // - not connected, OR websocket is closed/null
+        // - OR the websocket is different from current one (page navigation race condition)
+        // - AI slots can be taken over if game just started (grace period)
+        const canTakeOverAI = (player) => player?.isAI && gameJustStarted && !room.isSinglePlayer;
+        const p1Available = p1 && (
+            canTakeOverAI(p1) ||
+            (!p1.isAI && (!p1.connected || !p1.ws || p1.ws.readyState !== 1 || (p1.ws !== ws && p1.ws.readyState === 1)))
+        );
+        const p2Available = p2 && (
+            canTakeOverAI(p2) ||
+            (!p2.isAI && (!p2.connected || !p2.ws || p2.ws.readyState !== 1 || (p2.ws !== ws && p2.ws.readyState === 1)))
+        );
+
+        console.log(`Room ${room.id} reconnection check: p1Available=${p1Available}, p2Available=${p2Available}, gameJustStarted=${gameJustStarted}`);
         console.log(`  p1: connected=${p1?.connected}, wsState=${p1?.ws?.readyState}, isAI=${p1?.isAI}`);
         console.log(`  p2: connected=${p2?.connected}, wsState=${p2?.ws?.readyState}, isAI=${p2?.isAI}`);
 
         if (p1Available) {
+            const wasAI = p1.isAI;
             // Force close old websocket if it's still open (race condition fix)
             if (p1.ws && p1.ws !== ws && p1.ws.readyState === 1) {
                 console.log(`Force closing old p1 websocket for room ${room.id}`);
@@ -200,7 +213,11 @@ function handleJoin(ws, roomId) {
             }
             room.reconnectPlayer('player1', ws);
             reconnectedAs = 'player1';
+            if (wasAI) {
+                console.log(`Human taking over from AI for player1 in room ${room.id}`);
+            }
         } else if (p2Available) {
+            const wasAI = p2.isAI;
             // Force close old websocket if it's still open (race condition fix)
             if (p2.ws && p2.ws !== ws && p2.ws.readyState === 1) {
                 console.log(`Force closing old p2 websocket for room ${room.id}`);
@@ -209,6 +226,9 @@ function handleJoin(ws, roomId) {
             }
             room.reconnectPlayer('player2', ws);
             reconnectedAs = 'player2';
+            if (wasAI) {
+                console.log(`Human taking over from AI for player2 in room ${room.id}`);
+            }
         }
 
         if (reconnectedAs) {
