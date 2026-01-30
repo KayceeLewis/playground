@@ -1,3 +1,5 @@
+workspace: My Workspace
+
 services:
   - type: web
     name: hit-me-game
