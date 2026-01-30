@@ -34,7 +34,8 @@
     </div>
 
     <script>
-        const ws = new WebSocket(`ws://${window.location.host}`);
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
 
         const menuEl = document.getElementById('menu');
         const waitingEl = document.getElementById('waiting');

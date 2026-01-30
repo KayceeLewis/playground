@@ -16,7 +16,8 @@ if (!roomId) {
 }
 
 // WebSocket connection
-const ws = new WebSocket(`ws://${window.location.host}`);
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
 
 // Game state (received from server)
 let gameState = null;
