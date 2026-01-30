@@ -110,7 +110,8 @@ function handleRematchRequest(ws) {
     if (!data) return;
 
     const room = roomManager.getRoom(data.roomId);
-    if (!room || room.state !== 'gameover') return;
+    // Allow rematch from either gameover or levelcomplete state
+    if (!room || (room.state !== 'gameover' && room.state !== 'levelcomplete')) return;
 
     // Mark this player as wanting a rematch
     const player = room.players[data.playerNumber];
@@ -133,7 +134,8 @@ function handleRematchAccept(ws) {
     if (!data) return;
 
     const room = roomManager.getRoom(data.roomId);
-    if (!room || room.state !== 'gameover') return;
+    // Allow rematch from either gameover or levelcomplete state
+    if (!room || (room.state !== 'gameover' && room.state !== 'levelcomplete')) return;
 
     // Mark this player as wanting a rematch
     const player = room.players[data.playerNumber];

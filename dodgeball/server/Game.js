@@ -8,6 +8,8 @@ const GRAVITY = 0.5;
 const BALL_SPEED = 10;
 const RESPAWN_TIME = 90;
 const INVINCIBLE_TIME = 120;
+const POWERUP_TIME = 300; // 5 seconds at 60fps = 300 ticks to get powerup
+const POWERUP_BALL_SIZE = 16; // Double the normal size of 8
 
 export class Game {
     constructor(room) {
@@ -54,7 +56,10 @@ export class Game {
             isInvincible: false,
             invincibleTimer: 0,
             facingRight: side === 'left',
-            throwAnimation: 0
+            throwAnimation: 0,
+            // Power-up: bigger ball after avoiding hits
+            noHitTimer: 0,
+            hasPowerup: false
         };
     }
 
@@ -204,6 +209,15 @@ export class Game {
         if (player.throwAnimation > 0) {
             player.throwAnimation--;
         }
+
+        // Update power-up timer (only for human players)
+        const roomPlayer = this.room.players[playerNumber];
+        if (roomPlayer && !roomPlayer.isAI) {
+            player.noHitTimer++;
+            if (player.noHitTimer >= POWERUP_TIME && !player.hasPowerup) {
+                player.hasPowerup = true;
+            }
+        }
     }
 
     processAIPlayerInput(ai) {
@@ -289,45 +303,48 @@ export class Game {
         const player1 = this.state.players.player1;
         const input = { left: false, right: false, jump: false, duck: false, throw: false };
 
-        // Find incoming balls
+        // Find incoming balls - AI only reacts when ball is closer (easier to hit)
         const incomingBall = this.state.balls.find(ball => {
             if (ball.owner === ai.side) return false;
             const movingTowardAI = ball.velocityX > 0; // Moving right toward AI
-            const closeEnough = Math.abs(ball.x - ai.x) < 200;
+            const closeEnough = Math.abs(ball.x - ai.x) < 120; // Reduced from 200 - slower reaction
             return movingTowardAI && closeEnough;
         });
 
         if (incomingBall) {
-            // Dodge the ball
-            const aiHeight = ai.isDucking ? 35 : 60;
-            const aiTop = ai.y - aiHeight;
-            const aiBottom = ai.y;
-            const ballY = incomingBall.y;
+            // AI has slower reactions - only dodge 60% of the time
+            if (Math.random() < 0.6) {
+                // Dodge the ball
+                const aiHeight = ai.isDucking ? 35 : 60;
+                const aiTop = ai.y - aiHeight;
+                const aiBottom = ai.y;
+                const ballY = incomingBall.y;
 
-            if (ballY < aiTop + 20) {
-                input.duck = true;
-            } else if (ballY > aiBottom - 30 && !ai.isJumping) {
-                input.jump = true;
-            } else {
-                // Move away from ball path
-                input.right = Math.random() < 0.5;
-                input.left = !input.right;
+                if (ballY < aiTop + 20) {
+                    input.duck = true;
+                } else if (ballY > aiBottom - 30 && !ai.isJumping) {
+                    input.jump = true;
+                } else {
+                    // Move away from ball path
+                    input.right = Math.random() < 0.5;
+                    input.left = !input.right;
+                }
             }
         } else if (ai.hasBall) {
-            // Has ball, consider throwing
-            if (Math.random() < 0.02) {
+            // Has ball, consider throwing - reduced frequency from 0.02 to 0.01
+            if (Math.random() < 0.01) {
                 input.throw = true;
                 // Face player1 (left side)
                 ai.facingRight = false;
             }
-            // Move around a bit
-            if (Math.random() < 0.1) {
+            // Move around a bit - less frequently
+            if (Math.random() < 0.05) {
                 input.left = Math.random() < 0.5;
                 input.right = !input.left;
             }
         } else {
-            // No ball, move around randomly
-            if (Math.random() < 0.05) {
+            // No ball, move around randomly - less frequently
+            if (Math.random() < 0.03) {
                 input.left = Math.random() < 0.5;
                 input.right = !input.left;
             }
@@ -339,6 +356,16 @@ export class Game {
     throwBall(playerNumber) {
         const player = this.state.players[playerNumber];
         if (!player.hasBall) return;
+
+        // Check if player has power-up for bigger ball
+        const hasPowerup = player.hasPowerup;
+        const ballSize = hasPowerup ? POWERUP_BALL_SIZE : 8;
+
+        // Use the power-up (one-time use)
+        if (hasPowerup) {
+            player.hasPowerup = false;
+            player.noHitTimer = 0;
+        }
 
         player.hasBall = false;
         player.throwAnimation = 10;
@@ -354,7 +381,9 @@ export class Game {
             y: armY,
             velocityX: direction * BALL_SPEED,
             owner: player.side,
-            active: true
+            active: true,
+            size: ballSize,
+            isPowered: hasPowerup
         });
     }
 
@@ -380,11 +409,14 @@ export class Game {
             // Check collision with player1
             const player1 = this.state.players.player1;
             if (ball.owner !== player1.side && !player1.isInvincible) {
-                if (this.checkBallPlayerCollision(ball, player1)) {
+                if (this.checkBallPlayerCollision(ball, player1, ball.size || 8)) {
                     ball.active = false;
                     player1.lives--;
                     player1.isInvincible = true;
                     player1.invincibleTimer = INVINCIBLE_TIME;
+                    // Reset power-up on hit
+                    player1.noHitTimer = 0;
+                    player1.hasPowerup = false;
                     continue;
                 }
             }
@@ -396,7 +428,7 @@ export class Game {
                     if (ball.owner === ai.side) continue;
                     if (ai.isInvincible) continue;
 
-                    if (this.checkBallPlayerCollision(ball, ai)) {
+                    if (this.checkBallPlayerCollision(ball, ai, ball.size || 8)) {
                         ball.active = false;
                         ai.lives--;
                         ai.isInvincible = true;
@@ -407,28 +439,31 @@ export class Game {
             } else {
                 const player2 = this.state.players.player2;
                 if (player2 && ball.owner !== player2.side && !player2.isInvincible) {
-                    if (this.checkBallPlayerCollision(ball, player2)) {
+                    if (this.checkBallPlayerCollision(ball, player2, ball.size || 8)) {
                         ball.active = false;
                         player2.lives--;
                         player2.isInvincible = true;
                         player2.invincibleTimer = INVINCIBLE_TIME;
+                        // Reset power-up on hit
+                        player2.noHitTimer = 0;
+                        player2.hasPowerup = false;
                     }
                 }
             }
         }
     }
 
-    checkBallPlayerCollision(ball, player) {
+    checkBallPlayerCollision(ball, player, ballSize = 8) {
         const height = player.isDucking ? 35 : 60;
         const playerLeft = player.x - 15;
         const playerRight = player.x + 15;
         const playerTop = player.y - height;
         const playerBottom = player.y;
 
-        const ballLeft = ball.x - 8;
-        const ballRight = ball.x + 8;
-        const ballTop = ball.y - 8;
-        const ballBottom = ball.y + 8;
+        const ballLeft = ball.x - ballSize;
+        const ballRight = ball.x + ballSize;
+        const ballTop = ball.y - ballSize;
+        const ballBottom = ball.y + ballSize;
 
         return ballRight > playerLeft &&
                ballLeft < playerRight &&
@@ -478,11 +513,13 @@ export class Game {
             if (p1Lives <= 0) {
                 this.state.gameState = 'gameover';
                 this.state.winner = 'ai';
+                this.room.state = 'gameover'; // Sync room state for rematch handling
                 this.stop();
                 this.broadcastState();
             } else if (allAIDefeated) {
                 this.state.gameState = 'levelcomplete';
                 this.state.winner = 'player1';
+                this.room.state = 'levelcomplete'; // Sync room state
                 this.stop();
                 this.broadcastState();
             }
@@ -492,6 +529,7 @@ export class Game {
             if (p1Lives <= 0 || p2Lives <= 0) {
                 this.state.gameState = 'gameover';
                 this.state.winner = p1Lives > 0 ? 'player1' : 'player2';
+                this.room.state = 'gameover'; // Sync room state for rematch handling
                 this.stop();
                 this.broadcastState();
             }
@@ -503,47 +541,50 @@ export class Game {
         const opponent = this.state.players[playerNumber === 'player1' ? 'player2' : 'player1'];
         const input = { left: false, right: false, jump: false, duck: false, throw: false };
 
-        // Find incoming balls
+        // Find incoming balls - AI only reacts when ball is closer (easier to hit)
         const incomingBall = this.state.balls.find(ball => {
             if (ball.owner === ai.side) return false;
             const movingTowardAI = (ai.side === 'left' && ball.velocityX < 0) ||
                                    (ai.side === 'right' && ball.velocityX > 0);
-            const closeEnough = Math.abs(ball.x - ai.x) < 200;
+            const closeEnough = Math.abs(ball.x - ai.x) < 120; // Reduced from 200
             return movingTowardAI && closeEnough;
         });
 
         if (incomingBall) {
-            // Dodge the ball
-            const aiHeight = ai.isDucking ? 35 : 60;
-            const aiTop = ai.y - aiHeight;
-            const aiBottom = ai.y;
-            const ballY = incomingBall.y;
+            // AI has slower reactions - only dodge 60% of the time
+            if (Math.random() < 0.6) {
+                // Dodge the ball
+                const aiHeight = ai.isDucking ? 35 : 60;
+                const aiTop = ai.y - aiHeight;
+                const aiBottom = ai.y;
+                const ballY = incomingBall.y;
 
-            if (ballY < aiTop + 20) {
-                // Ball is high, duck
-                input.duck = true;
-            } else if (ballY > aiBottom - 30 && !ai.isJumping) {
-                // Ball is low, jump
-                input.jump = true;
-            } else {
-                // Move away from ball
-                input.left = ai.side === 'right';
-                input.right = ai.side === 'left';
+                if (ballY < aiTop + 20) {
+                    // Ball is high, duck
+                    input.duck = true;
+                } else if (ballY > aiBottom - 30 && !ai.isJumping) {
+                    // Ball is low, jump
+                    input.jump = true;
+                } else {
+                    // Move away from ball
+                    input.left = ai.side === 'right';
+                    input.right = ai.side === 'left';
+                }
             }
         } else if (ai.hasBall) {
-            // Has ball, consider throwing
-            if (Math.random() < 0.02) {
+            // Has ball, consider throwing - reduced frequency
+            if (Math.random() < 0.01) {
                 input.throw = true;
             }
-            // Face opponent
+            // Face opponent - less movement
             if (ai.side === 'left') {
-                input.right = Math.random() < 0.1;
+                input.right = Math.random() < 0.05;
             } else {
-                input.left = Math.random() < 0.1;
+                input.left = Math.random() < 0.05;
             }
         } else {
-            // Move around randomly
-            if (Math.random() < 0.05) {
+            // Move around randomly - less frequently
+            if (Math.random() < 0.03) {
                 input.left = Math.random() < 0.5;
                 input.right = !input.left;
             }
@@ -553,6 +594,7 @@ export class Game {
     }
 
     broadcastState() {
+        const player1 = this.state.players.player1;
         const stateToSend = {
             type: 'state',
             gameState: this.state.gameState,
@@ -561,8 +603,10 @@ export class Game {
             winner: this.state.winner,
             players: {
                 player1: {
-                    ...this.state.players.player1,
-                    isAI: this.room.players.player1?.isAI || false
+                    ...player1,
+                    isAI: this.room.players.player1?.isAI || false,
+                    powerupProgress: Math.min(100, Math.floor((player1.noHitTimer / POWERUP_TIME) * 100)),
+                    hasPowerup: player1.hasPowerup
                 }
             }
         };
@@ -574,9 +618,12 @@ export class Game {
                 isAI: true
             }));
         } else if (this.state.players.player2) {
+            const player2 = this.state.players.player2;
             stateToSend.players.player2 = {
-                ...this.state.players.player2,
-                isAI: this.room.players.player2?.isAI || false
+                ...player2,
+                isAI: this.room.players.player2?.isAI || false,
+                powerupProgress: Math.min(100, Math.floor((player2.noHitTimer / POWERUP_TIME) * 100)),
+                hasPowerup: player2.hasPowerup
             };
         }
 

@@ -660,10 +660,20 @@ function drawPlayer(player, isAI) {
 }
 
 function drawBall(ball) {
-    ctx.fillStyle = '#FFFF00';
+    const size = ball.size || 8;
+    // Powered balls glow orange
+    if (ball.isPowered) {
+        ctx.fillStyle = '#FF8800';
+        // Add glow effect
+        ctx.shadowColor = '#FF6600';
+        ctx.shadowBlur = 15;
+    } else {
+        ctx.fillStyle = '#FFFF00';
+    }
     ctx.beginPath();
-    ctx.arc(ball.x, ball.y, 8, 0, Math.PI * 2);
+    ctx.arc(ball.x, ball.y, size, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 1;
     ctx.stroke();
@@ -948,6 +958,40 @@ function render() {
             ctx.fillText('(You)', CANVAS_WIDTH - 70, 72);
         }
 
+        // Power-up indicator for current player
+        const myPlayer = gameState.players[myPlayerNumber];
+        if (myPlayer && !myPlayer.isAI) {
+            const barX = myPlayerNumber === 'player1' ? 10 : CANVAS_WIDTH - 110;
+            const barY = 80;
+            const barWidth = 100;
+            const barHeight = 8;
+            const progress = myPlayer.powerupProgress || 0;
+
+            // Background
+            ctx.fillStyle = '#333333';
+            ctx.fillRect(barX, barY, barWidth, barHeight);
+
+            // Progress bar
+            if (myPlayer.hasPowerup) {
+                // Pulsing glow when ready
+                const pulse = Math.sin(Date.now() / 100) * 0.3 + 0.7;
+                ctx.fillStyle = `rgba(255, 136, 0, ${pulse})`;
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+                ctx.font = 'bold 10px Arial';
+                ctx.fillStyle = '#FFFFFF';
+                ctx.textAlign = myPlayerNumber === 'player1' ? 'left' : 'right';
+                ctx.fillText('POWER READY!', myPlayerNumber === 'player1' ? barX : barX + barWidth, barY + barHeight + 12);
+            } else if (progress > 0) {
+                ctx.fillStyle = '#FF8800';
+                ctx.fillRect(barX, barY, barWidth * (progress / 100), barHeight);
+            }
+
+            // Border
+            ctx.strokeStyle = '#666666';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(barX, barY, barWidth, barHeight);
+        }
+
         // Level complete overlay
         if (gameState.gameState === 'levelcomplete') {
             ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
@@ -984,11 +1028,11 @@ function render() {
                     ctx.fillStyle = '#88FF88';
                     ctx.fillText('Starting new game...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
                 } else {
-                    ctx.fillText('Press SPACE or R to play again', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
+                    ctx.fillText('Press R to play again', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
                 }
                 ctx.fillStyle = '#AAAAAA';
                 ctx.font = '18px Arial';
-                ctx.fillText('Press ESC to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
+                ctx.fillText('Press ESC to exit', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
             } else {
                 // Multiplayer rematch UI
                 if (rematchRequested && opponentWantsRematch) {
@@ -1003,11 +1047,11 @@ function render() {
                     ctx.fillStyle = '#FFFFFF';
                     ctx.fillText('Press SPACE or R to accept', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
                 } else {
-                    ctx.fillText('Press SPACE or R for rematch', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+                    ctx.fillText('Press R for rematch', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
                 }
                 ctx.fillStyle = '#AAAAAA';
                 ctx.font = '18px Arial';
-                ctx.fillText('Press ESC to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
+                ctx.fillText('Press ESC to exit', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
             }
         }
     }
