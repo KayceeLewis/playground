@@ -16,17 +16,36 @@ export class Room {
         };
         this.state = 'waiting'; // waiting, countdown, playing, gameover
         this.createdAt = Date.now();
+        this.level = 1; // Current level (for single player mode)
+        this.isSinglePlayer = false;
     }
 
     addPlayer(ws) {
-        if (!this.players.player1) {
-            this.players.player1 = { ws, connected: true, isAI: false };
+        // Check for empty or disconnected player1 slot
+        if (!this.players.player1 || (!this.players.player1.connected && !this.players.player1.isAI)) {
+            if (this.players.player1) {
+                // Reconnect to existing slot
+                this.players.player1.ws = ws;
+                this.players.player1.connected = true;
+                this.players.player1.isAI = false;
+            } else {
+                this.players.player1 = { ws, connected: true, isAI: false };
+            }
             return 'player1';
-        } else if (!this.players.player2) {
-            this.players.player2 = { ws, connected: true, isAI: false };
+        }
+        // Check for empty or disconnected player2 slot
+        if (!this.players.player2 || (!this.players.player2.connected && !this.players.player2.isAI)) {
+            if (this.players.player2) {
+                // Reconnect to existing slot
+                this.players.player2.ws = ws;
+                this.players.player2.connected = true;
+                this.players.player2.isAI = false;
+            } else {
+                this.players.player2 = { ws, connected: true, isAI: false };
+            }
             return 'player2';
         }
-        return null; // Room full
+        return null; // Room truly full
     }
 
     removePlayer(playerNumber) {
@@ -49,7 +68,13 @@ export class Room {
     }
 
     isFull() {
-        return this.players.player1 !== null && this.players.player2 !== null;
+        // A room is full only if both player slots are taken AND connected
+        // (or if it's a single-player room with AI)
+        const p1Taken = this.players.player1 !== null &&
+                        (this.players.player1.connected || this.players.player1.isAI);
+        const p2Taken = this.players.player2 !== null &&
+                        (this.players.player2.connected || this.players.player2.isAI);
+        return p1Taken && p2Taken;
     }
 
     isEmpty() {

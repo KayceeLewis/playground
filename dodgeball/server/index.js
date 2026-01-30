@@ -57,8 +57,44 @@ function handleMessage(ws, message) {
         case 'input':
             handleInput(ws, message.keys);
             break;
+        case 'next_level':
+            handleNextLevel(ws);
+            break;
         default:
             console.log('Unknown message type:', message.type);
+    }
+}
+
+function handleNextLevel(ws) {
+    const data = wsData.get(ws);
+    if (!data) return;
+
+    const room = roomManager.getRoom(data.roomId);
+    if (!room || !room.isSinglePlayer) return;
+
+    // Only proceed if level was completed successfully
+    if (room.state !== 'gameover' && room.state !== 'playing') {
+        // Increment level
+        room.level++;
+        room.state = 'countdown';
+
+        console.log(`Room ${room.id} advancing to level ${room.level}`);
+
+        // Clean up old game
+        const oldGame = games.get(room.id);
+        if (oldGame) {
+            oldGame.stop();
+            games.delete(room.id);
+        }
+
+        // Notify client of level up
+        ws.send(JSON.stringify({
+            type: 'level_up',
+            level: room.level
+        }));
+
+        // Start countdown for next level
+        startCountdown(room);
     }
 }
 
@@ -75,8 +111,10 @@ function handleCreate(ws, singlePlayer = false) {
 
     console.log(`Room ${room.id} created${singlePlayer ? ' (single player)' : ''}`);
 
-    // For single player mode, add AI as player 2 and start immediately
+    // For single player mode, mark it and start immediately
     if (singlePlayer) {
+        room.isSinglePlayer = true;
+        room.level = 1;
         room.players.player2 = { ws: null, connected: false, isAI: true };
         startCountdown(room);
     }
@@ -90,20 +128,24 @@ function handleJoin(ws, roomId) {
         return;
     }
 
-    // Check if this is a single-player room needing reconnection
-    // (player1 disconnected during page navigation, player2 is AI)
-    if (room.players.player2?.isAI && !room.players.player1?.connected) {
-        // Reconnect as player1
-        room.reconnectPlayer('player1', ws);
-        wsData.set(ws, { roomId: room.id, playerNumber: 'player1' });
+    // Single-player rooms are not joinable by other players
+    if (room.isSinglePlayer) {
+        // Check if this is player1 trying to reconnect after page navigation
+        if (!room.players.player1?.connected) {
+            room.reconnectPlayer('player1', ws);
+            wsData.set(ws, { roomId: room.id, playerNumber: 'player1' });
 
-        ws.send(JSON.stringify({
-            type: 'player_joined',
-            playerNumber: 'player1',
-            roomId: room.id
-        }));
+            ws.send(JSON.stringify({
+                type: 'player_joined',
+                playerNumber: 'player1',
+                roomId: room.id
+            }));
 
-        console.log(`Player reconnected to single-player room ${room.id}`);
+            console.log(`Player reconnected to single-player room ${room.id}`);
+            return;
+        }
+        // Otherwise, single-player rooms can't be joined by others
+        ws.send(JSON.stringify({ type: 'error', message: 'This is a single-player game' }));
         return;
     }
 

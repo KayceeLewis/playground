@@ -162,6 +162,10 @@ let prevLives = { player1: 3, player2: 3 };
 let prevBallCount = 0;
 let gameOverSoundPlayed = false;
 
+// Control instructions state
+let showingInstructions = true;
+let instructionsDismissed = false;
+
 // Get room ID from URL
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get('room');
@@ -179,6 +183,8 @@ let gameState = null;
 let myPlayerNumber = null;
 let countdownSeconds = null;
 let connectionStatus = 'connecting';
+let currentLevel = 1;
+let isSinglePlayer = false;
 
 // Input state
 const keys = {
@@ -293,6 +299,10 @@ ws.onmessage = (event) => {
             countdownSeconds = null;
             break;
         case 'state':
+            // Detect single player mode
+            isSinglePlayer = !!msg.aiPlayers;
+            if (msg.level) currentLevel = msg.level;
+
             // Check for sound triggers before updating state
             if (gameState) {
                 // Ball thrown (more balls than before)
@@ -308,24 +318,46 @@ ws.onmessage = (event) => {
                         createExplosion(msg.players.player1.x, msg.players.player1.y - 30, '#0000FF');
                     }
                 }
-                if (msg.players.player2.lives < prevLives.player2) {
-                    playHitSound();
-                    if (msg.players.player2.lives <= 0) {
-                        createExplosion(msg.players.player2.x, msg.players.player2.y - 30, '#FF0000');
-                    }
-                }
                 prevLives.player1 = msg.players.player1.lives;
-                prevLives.player2 = msg.players.player2.lives;
 
-                // Game over
-                if (msg.gameState === 'gameover' && !gameOverSoundPlayed) {
+                // Check AI players or player2
+                if (isSinglePlayer && msg.aiPlayers) {
+                    msg.aiPlayers.forEach((ai, idx) => {
+                        const prevAI = prevLives[`ai${idx}`] || 3;
+                        if (ai.lives < prevAI) {
+                            playHitSound();
+                            if (ai.lives <= 0) {
+                                createExplosion(ai.x, ai.y - 30, '#FF0000');
+                            }
+                        }
+                        prevLives[`ai${idx}`] = ai.lives;
+                    });
+                } else if (msg.players.player2) {
+                    if (msg.players.player2.lives < (prevLives.player2 || 3)) {
+                        playHitSound();
+                        if (msg.players.player2.lives <= 0) {
+                            createExplosion(msg.players.player2.x, msg.players.player2.y - 30, '#FF0000');
+                        }
+                    }
+                    prevLives.player2 = msg.players.player2.lives;
+                }
+
+                // Game over or level complete
+                if ((msg.gameState === 'gameover' || msg.gameState === 'levelcomplete') && !gameOverSoundPlayed) {
                     gameOverSoundPlayed = true;
-                    playExplosionSound();
-                    const youWon = msg.winner === myPlayerNumber;
-                    setTimeout(() => {
-                        if (youWon) playWinSound();
-                        else playLoseSound();
-                    }, 300);
+                    if (msg.gameState === 'gameover' && msg.winner === 'ai') {
+                        playExplosionSound();
+                        setTimeout(() => playLoseSound(), 300);
+                    } else if (msg.gameState === 'levelcomplete') {
+                        playWinSound();
+                    } else {
+                        playExplosionSound();
+                        const youWon = msg.winner === myPlayerNumber;
+                        setTimeout(() => {
+                            if (youWon) playWinSound();
+                            else playLoseSound();
+                        }, 300);
+                    }
                 }
             }
             gameState = msg;
@@ -337,6 +369,15 @@ ws.onmessage = (event) => {
             break;
         case 'opponent_reconnected':
             // Opponent is back
+            break;
+        case 'level_up':
+            currentLevel = msg.level;
+            gameOverSoundPlayed = false;
+            // Reset tracking
+            prevLives = { player1: 3 };
+            prevBallCount = 0;
+            showingInstructions = false;
+            instructionsDismissed = true;
             break;
         case 'error':
             alert(msg.message);
@@ -353,10 +394,29 @@ ws.onclose = () => {
     }, 2000);
 };
 
-// SPACE to return to lobby after game over
+// SPACE to return to lobby after game over, or continue to next level
 document.addEventListener('keydown', (e) => {
-    if (e.key === ' ' && gameState?.gameState === 'gameover') {
+    if (e.key === ' ') {
+        if (gameState?.gameState === 'gameover') {
+            window.location.href = '/';
+        } else if (gameState?.gameState === 'levelcomplete') {
+            // Request next level
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'next_level' }));
+            }
+        }
+    }
+    // ESC to return to lobby during level complete
+    if (e.key === 'Escape' && gameState?.gameState === 'levelcomplete') {
         window.location.href = '/';
+    }
+});
+
+// Dismiss instructions on any key press
+document.addEventListener('keydown', (e) => {
+    if (showingInstructions && !instructionsDismissed && connectionStatus === 'playing') {
+        instructionsDismissed = true;
+        showingInstructions = false;
     }
 });
 
@@ -375,7 +435,7 @@ function drawPlayer(player, isAI) {
     const bodyEndY = bodyStartY + bodyLength;
     const footY = player.y;
 
-    ctx.strokeStyle = player.side === 'left' ? '#0000FF' : '#FF0000';
+    ctx.strokeStyle = player.side === 'left' ? '#4488FF' : '#FF4444';
     ctx.lineWidth = 3;
 
     // Head
@@ -450,26 +510,239 @@ function drawBall(ball) {
     ctx.stroke();
 }
 
-function render() {
-    // Clear canvas
-    ctx.fillStyle = '#87CEEB';
+function drawArenaBackground() {
+    // Dark arena background (like the movie)
+    ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Draw ground
-    ctx.fillStyle = '#8B4513';
-    ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y);
+    // Crowd silhouettes in background
+    const crowdY = 60;
+    const crowdHeight = 80;
 
-    // Draw center line
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.setLineDash([10, 10]);
+    // Gradient for crowd area (darker at top)
+    const crowdGradient = ctx.createLinearGradient(0, 0, 0, crowdY + crowdHeight);
+    crowdGradient.addColorStop(0, '#0d0d1a');
+    crowdGradient.addColorStop(1, '#1a1a2e');
+    ctx.fillStyle = crowdGradient;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, crowdY + crowdHeight);
+
+    // Draw crowd silhouettes
+    ctx.fillStyle = '#2a2a4a';
+    for (let x = 0; x < CANVAS_WIDTH; x += 15) {
+        const headY = crowdY + 20 + Math.sin(x * 0.3) * 10;
+        const size = 6 + Math.random() * 3;
+        // Head
+        ctx.beginPath();
+        ctx.arc(x + 7, headY, size, 0, Math.PI * 2);
+        ctx.fill();
+        // Body
+        ctx.fillRect(x + 2, headY + size, 10, 20);
+    }
+
+    // Second row of crowd (slightly darker, behind)
+    ctx.fillStyle = '#202038';
+    for (let x = 8; x < CANVAS_WIDTH; x += 15) {
+        const headY = crowdY + 5 + Math.sin(x * 0.25) * 8;
+        const size = 5 + Math.random() * 2;
+        ctx.beginPath();
+        ctx.arc(x + 7, headY, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(x + 3, headY + size, 8, 15);
+    }
+
+    // Arena railing/barrier
+    ctx.fillStyle = '#4a4a6a';
+    ctx.fillRect(0, crowdY + crowdHeight - 5, CANVAS_WIDTH, 8);
+    ctx.fillStyle = '#3a3a5a';
+    ctx.fillRect(0, crowdY + crowdHeight + 3, CANVAS_WIDTH, 3);
+
+    // Court floor - dark with subtle gradient
+    const floorGradient = ctx.createLinearGradient(0, crowdY + crowdHeight, 0, GROUND_Y + 50);
+    floorGradient.addColorStop(0, '#1a1a1a');
+    floorGradient.addColorStop(0.5, '#252525');
+    floorGradient.addColorStop(1, '#1a1a1a');
+    ctx.fillStyle = floorGradient;
+    ctx.fillRect(0, crowdY + crowdHeight + 6, CANVAS_WIDTH, GROUND_Y - crowdY - crowdHeight + 44);
+
+    // Team zones - Blue (left) and Red (right) like in the movie
+    // Left zone (purple/blue team area)
+    const zoneGradient1 = ctx.createLinearGradient(0, 0, CANVAS_WIDTH / 2 - 20, 0);
+    zoneGradient1.addColorStop(0, 'rgba(60, 60, 140, 0.4)');
+    zoneGradient1.addColorStop(1, 'rgba(80, 60, 160, 0.2)');
+    ctx.fillStyle = zoneGradient1;
+    ctx.fillRect(10, crowdY + crowdHeight + 20, CANVAS_WIDTH / 2 - 30, GROUND_Y - crowdY - crowdHeight - 10);
+
+    // Right zone (red team area)
+    const zoneGradient2 = ctx.createLinearGradient(CANVAS_WIDTH / 2 + 20, 0, CANVAS_WIDTH, 0);
+    zoneGradient2.addColorStop(0, 'rgba(160, 60, 80, 0.2)');
+    zoneGradient2.addColorStop(1, 'rgba(140, 60, 60, 0.4)');
+    ctx.fillStyle = zoneGradient2;
+    ctx.fillRect(CANVAS_WIDTH / 2 + 20, crowdY + crowdHeight + 20, CANVAS_WIDTH / 2 - 30, GROUND_Y - crowdY - crowdHeight - 10);
+
+    // Zone borders
+    ctx.strokeStyle = '#6060aa';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(10, crowdY + crowdHeight + 20, CANVAS_WIDTH / 2 - 30, GROUND_Y - crowdY - crowdHeight - 10);
+
+    ctx.strokeStyle = '#aa6060';
+    ctx.strokeRect(CANVAS_WIDTH / 2 + 20, crowdY + crowdHeight + 20, CANVAS_WIDTH / 2 - 30, GROUND_Y - crowdY - crowdHeight - 10);
+
+    // Center line with hazard stripes
+    ctx.fillStyle = '#FFD700';
+    ctx.fillRect(CANVAS_WIDTH / 2 - 3, crowdY + crowdHeight + 10, 6, GROUND_Y - crowdY - crowdHeight);
+
+    // Center circle
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(CANVAS_WIDTH / 2, 0);
-    ctx.lineTo(CANVAS_WIDTH / 2, GROUND_Y);
+    ctx.arc(CANVAS_WIDTH / 2, GROUND_Y - 80, 40, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.setLineDash([]);
+
+    // Hazard triangles at center (like in the movie)
+    ctx.fillStyle = '#FFD700';
+    // Left triangle
+    ctx.beginPath();
+    ctx.moveTo(CANVAS_WIDTH / 2 - 15, GROUND_Y - 5);
+    ctx.lineTo(CANVAS_WIDTH / 2 - 35, GROUND_Y - 5);
+    ctx.lineTo(CANVAS_WIDTH / 2 - 25, GROUND_Y - 25);
+    ctx.closePath();
+    ctx.fill();
+    // Right triangle
+    ctx.beginPath();
+    ctx.moveTo(CANVAS_WIDTH / 2 + 15, GROUND_Y - 5);
+    ctx.lineTo(CANVAS_WIDTH / 2 + 35, GROUND_Y - 5);
+    ctx.lineTo(CANVAS_WIDTH / 2 + 25, GROUND_Y - 25);
+    ctx.closePath();
+    ctx.fill();
+
+    // Floor/court edge
+    ctx.fillStyle = '#cc0000';
+    ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, 8);
+    ctx.fillStyle = '#990000';
+    ctx.fillRect(0, GROUND_Y + 8, CANVAS_WIDTH, CANVAS_HEIGHT - GROUND_Y - 8);
+
+    // Overhead lights (creates atmosphere)
+    const lightPositions = [150, 400, 650];
+    for (const lx of lightPositions) {
+        // Light fixture
+        ctx.fillStyle = '#333';
+        ctx.fillRect(lx - 25, 0, 50, 15);
+        // Light glow
+        const lightGlow = ctx.createRadialGradient(lx, 15, 0, lx, 15, 150);
+        lightGlow.addColorStop(0, 'rgba(255, 255, 200, 0.15)');
+        lightGlow.addColorStop(0.5, 'rgba(255, 255, 200, 0.05)');
+        lightGlow.addColorStop(1, 'rgba(255, 255, 200, 0)');
+        ctx.fillStyle = lightGlow;
+        ctx.fillRect(lx - 150, 0, 300, 300);
+        // Light bulb
+        ctx.fillStyle = '#FFFFCC';
+        ctx.beginPath();
+        ctx.arc(lx, 12, 8, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Banner at top (like "GO BALLS DEEP!")
+    ctx.fillStyle = '#cc0033';
+    ctx.fillRect(200, 5, 400, 35);
+    // Banner border
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(200, 5, 400, 35);
+    // Banner text
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 22px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('HIT ME! CHAMPIONSHIP', CANVAS_WIDTH / 2, 30);
+
+    // Side decorations - tournament bracket hint
+    ctx.fillStyle = '#333';
+    ctx.fillRect(CANVAS_WIDTH - 60, 50, 55, 80);
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(CANVAS_WIDTH - 60, 50, 55, 80);
+    // Bracket lines
+    ctx.strokeStyle = '#666';
+    ctx.beginPath();
+    ctx.moveTo(CANVAS_WIDTH - 50, 60);
+    ctx.lineTo(CANVAS_WIDTH - 30, 60);
+    ctx.lineTo(CANVAS_WIDTH - 30, 75);
+    ctx.moveTo(CANVAS_WIDTH - 50, 75);
+    ctx.lineTo(CANVAS_WIDTH - 30, 75);
+    ctx.moveTo(CANVAS_WIDTH - 30, 67);
+    ctx.lineTo(CANVAS_WIDTH - 20, 67);
+    ctx.lineTo(CANVAS_WIDTH - 20, 105);
+    ctx.moveTo(CANVAS_WIDTH - 50, 95);
+    ctx.lineTo(CANVAS_WIDTH - 30, 95);
+    ctx.lineTo(CANVAS_WIDTH - 30, 110);
+    ctx.moveTo(CANVAS_WIDTH - 50, 110);
+    ctx.lineTo(CANVAS_WIDTH - 30, 110);
+    ctx.moveTo(CANVAS_WIDTH - 30, 102);
+    ctx.lineTo(CANVAS_WIDTH - 20, 102);
+    ctx.stroke();
+
+    ctx.lineWidth = 1;
+}
+
+function drawControlInstructions() {
+    // Semi-transparent overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+
+    // Title
+    ctx.font = 'bold 32px Arial';
+    ctx.fillText('CONTROLS', CANVAS_WIDTH / 2, 60);
+
+    // Control instructions
+    ctx.font = '20px Arial';
+    const controls = [
+        { key: 'A / \u2190', action: 'Move Left' },
+        { key: 'D / \u2192', action: 'Move Right' },
+        { key: 'W / \u2191', action: 'Jump' },
+        { key: 'S / \u2193', action: 'Duck' },
+        { key: 'F / /', action: 'Throw Ball' }
+    ];
+
+    let y = 110;
+    for (const ctrl of controls) {
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 18px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(ctrl.key, CANVAS_WIDTH / 2 - 20, y);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '18px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(ctrl.action, CANVAS_WIDTH / 2 + 20, y);
+        y += 35;
+    }
+
+    // Objective
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#87CEEB';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillText('OBJECTIVE', CANVAS_WIDTH / 2, y + 20);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '16px Arial';
+    ctx.fillText('Hit your opponent with the ball to reduce their lives!', CANVAS_WIDTH / 2, y + 45);
+    ctx.fillText('Dodge, duck, and jump to avoid getting hit!', CANVAS_WIDTH / 2, y + 70);
+
+    // Press any key
+    ctx.fillStyle = '#00FF00';
+    ctx.font = 'bold 24px Arial';
+    const pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
+    ctx.globalAlpha = pulse;
+    ctx.fillText('Press any key to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 30);
+    ctx.globalAlpha = 1;
+}
+
+function render() {
+    // Draw arena background
+    drawArenaBackground();
 
     // Draw based on connection status
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#FFFFFF';
     ctx.font = '24px Arial';
     ctx.textAlign = 'center';
 
@@ -494,7 +767,15 @@ function render() {
         if (gameState.players.player1.lives > 0) {
             drawPlayer(gameState.players.player1, gameState.players.player1.isAI);
         }
-        if (gameState.players.player2.lives > 0) {
+
+        // Draw player2 or AI players
+        if (isSinglePlayer && gameState.aiPlayers) {
+            for (const ai of gameState.aiPlayers) {
+                if (ai.lives > 0) {
+                    drawPlayer(ai, true);
+                }
+            }
+        } else if (gameState.players.player2 && gameState.players.player2.lives > 0) {
             drawPlayer(gameState.players.player2, gameState.players.player2.isAI);
         }
 
@@ -508,24 +789,67 @@ function render() {
             }
         }
 
-        // Draw lives
+        // Draw level indicator for single player (on the banner area)
+        if (isSinglePlayer) {
+            // Level shows below the banner
+            ctx.font = 'bold 18px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText(`LEVEL ${currentLevel}`, CANVAS_WIDTH / 2, 55);
+        }
+
+        // Draw lives (positioned below banner)
         ctx.font = '20px Arial';
         ctx.textAlign = 'left';
-        ctx.fillStyle = '#0000FF';
-        ctx.fillText('P1: ' + '\u2764\uFE0F'.repeat(Math.max(0, gameState.players.player1.lives)), 10, 30);
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#FF0000';
-        ctx.fillText('P2: ' + '\u2764\uFE0F'.repeat(Math.max(0, gameState.players.player2.lives)), CANVAS_WIDTH - 10, 30);
+        ctx.fillStyle = '#4488FF';
+        ctx.fillText('P1: ' + '\u2764\uFE0F'.repeat(Math.max(0, gameState.players.player1.lives)), 10, 55);
+
+        // Draw AI lives or player2 lives
+        if (isSinglePlayer && gameState.aiPlayers) {
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#FF4444';
+            const totalAILives = gameState.aiPlayers.reduce((sum, ai) => sum + Math.max(0, ai.lives), 0);
+            ctx.fillText('CPU: ' + '\u2764\uFE0F'.repeat(totalAILives), CANVAS_WIDTH - 70, 55);
+        } else if (gameState.players.player2) {
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#FF4444';
+            ctx.fillText('P2: ' + '\u2764\uFE0F'.repeat(Math.max(0, gameState.players.player2.lives)), CANVAS_WIDTH - 70, 55);
+        }
 
         // Draw "You" indicator
         ctx.font = '14px Arial';
-        ctx.fillStyle = '#000000';
+        ctx.fillStyle = '#CCCCCC';
         if (myPlayerNumber === 'player1') {
             ctx.textAlign = 'left';
-            ctx.fillText('(You)', 10, 50);
+            ctx.fillText('(You)', 10, 72);
         } else {
             ctx.textAlign = 'right';
-            ctx.fillText('(You)', CANVAS_WIDTH - 10, 50);
+            ctx.fillText('(You)', CANVAS_WIDTH - 70, 72);
+        }
+
+        // Level complete overlay
+        if (gameState.gameState === 'levelcomplete') {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            ctx.fillStyle = '#FFD700';
+            ctx.font = '48px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Level ${currentLevel} Complete!`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = '24px Arial';
+            ctx.fillText(`Next: ${currentLevel + 1} opponent${currentLevel + 1 > 1 ? 's' : ''}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+
+            ctx.fillStyle = '#00FF00';
+            const pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
+            ctx.globalAlpha = pulse;
+            ctx.fillText('Press SPACE for next level', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 70);
+            ctx.globalAlpha = 1;
+
+            ctx.fillStyle = '#888888';
+            ctx.font = '16px Arial';
+            ctx.fillText('Press ESC to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 110);
         }
 
         // Game over overlay
@@ -541,7 +865,17 @@ function render() {
             ctx.fillText(youWon ? 'You Win!' : 'You Lose!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
 
             ctx.font = '24px Arial';
-            ctx.fillText('Press SPACE to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
+            if (isSinglePlayer) {
+                ctx.fillText(`Reached Level ${currentLevel}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
+                ctx.fillText('Press SPACE to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
+            } else {
+                ctx.fillText('Press SPACE to return to lobby', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
+            }
+        }
+
+        // Control instructions overlay (shown at start of game)
+        if (showingInstructions && !instructionsDismissed && gameState.gameState === 'playing') {
+            drawControlInstructions();
         }
     }
 

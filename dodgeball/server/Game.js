@@ -12,20 +12,35 @@ const INVINCIBLE_TIME = 120;
 export class Game {
     constructor(room) {
         this.room = room;
+        const level = room.level || 1;
+        const numAI = room.isSinglePlayer ? level : 1;
+
         this.state = {
             gameState: 'playing',
+            level: level,
             players: {
-                player1: this.createPlayer(150, 'left'),
-                player2: this.createPlayer(650, 'right')
+                player1: this.createPlayer(150, 'left')
             },
+            aiPlayers: [], // Array of AI opponents for level system
             balls: [],
-            respawnTimers: { player1: 0, player2: 0 }
+            respawnTimers: { player1: 0 }
         };
+
+        // Create AI opponents based on level
+        if (room.isSinglePlayer) {
+            this.createAIPlayers(numAI);
+        } else {
+            // Standard 2-player mode
+            this.state.players.player2 = this.createPlayer(650, 'right');
+            this.state.respawnTimers.player2 = 0;
+        }
+
         this.tickInterval = null;
     }
 
-    createPlayer(x, side) {
+    createPlayer(x, side, id = null) {
         return {
+            id: id,
             x,
             y: GROUND_Y,
             side,
@@ -39,6 +54,21 @@ export class Game {
             facingRight: side === 'left',
             throwAnimation: 0
         };
+    }
+
+    createAIPlayers(count) {
+        // Position AI players evenly across the right side
+        const rightStart = CANVAS_WIDTH / 2 + 50;
+        const rightEnd = CANVAS_WIDTH - 50;
+        const spacing = (rightEnd - rightStart) / Math.max(1, count);
+
+        for (let i = 0; i < count; i++) {
+            const x = rightStart + spacing * (i + 0.5);
+            const ai = this.createPlayer(x, 'right', `ai${i + 1}`);
+            ai.isAI = true;
+            this.state.aiPlayers.push(ai);
+            this.state.respawnTimers[`ai${i + 1}`] = 0;
+        }
     }
 
     start() {
@@ -56,13 +86,29 @@ export class Game {
     tick() {
         if (this.state.gameState !== 'playing') return;
 
-        // Process inputs for each player
+        // Process inputs for player1
         this.processPlayerInput('player1');
-        this.processPlayerInput('player2');
 
-        // Update players
+        // Process player2 or AI players
+        if (this.room.isSinglePlayer) {
+            for (const ai of this.state.aiPlayers) {
+                this.processAIPlayerInput(ai);
+            }
+        } else {
+            this.processPlayerInput('player2');
+        }
+
+        // Update player1
         this.updatePlayer('player1');
-        this.updatePlayer('player2');
+
+        // Update player2 or AI players
+        if (this.room.isSinglePlayer) {
+            for (const ai of this.state.aiPlayers) {
+                this.updateAIPlayer(ai);
+            }
+        } else {
+            this.updatePlayer('player2');
+        }
 
         // Update balls
         this.updateBalls();
@@ -155,6 +201,136 @@ export class Game {
         }
     }
 
+    processAIPlayerInput(ai) {
+        if (ai.lives <= 0) return;
+
+        const input = this.generateAIInputForPlayer(ai);
+
+        // Apply movement (AI stays on right side)
+        if (input.left) {
+            if (ai.x > CANVAS_WIDTH / 2 + 30) {
+                ai.x -= PLAYER_SPEED;
+            }
+            ai.facingRight = false;
+        }
+        if (input.right) {
+            if (ai.x < CANVAS_WIDTH - 30) {
+                ai.x += PLAYER_SPEED;
+            }
+            ai.facingRight = true;
+        }
+        if (input.jump && !ai.isJumping) {
+            ai.velocityY = JUMP_FORCE;
+            ai.isJumping = true;
+        }
+        ai.isDucking = !!input.duck;
+
+        // Handle throw
+        if (input.throw && ai.hasBall) {
+            this.throwBallFromAI(ai);
+        }
+    }
+
+    updateAIPlayer(ai) {
+        if (ai.lives <= 0) return;
+
+        // Apply gravity
+        ai.velocityY += GRAVITY;
+        ai.y += ai.velocityY;
+
+        // Ground collision
+        if (ai.y >= GROUND_Y) {
+            ai.y = GROUND_Y;
+            ai.velocityY = 0;
+            ai.isJumping = false;
+        }
+
+        // Update invincibility
+        if (ai.isInvincible) {
+            ai.invincibleTimer--;
+            if (ai.invincibleTimer <= 0) {
+                ai.isInvincible = false;
+            }
+        }
+
+        // Update throw animation
+        if (ai.throwAnimation > 0) {
+            ai.throwAnimation--;
+        }
+    }
+
+    throwBallFromAI(ai) {
+        if (!ai.hasBall) return;
+
+        ai.hasBall = false;
+        ai.throwAnimation = 10;
+        this.state.respawnTimers[ai.id] = RESPAWN_TIME;
+
+        const height = ai.isDucking ? 35 : 60;
+        const armY = ai.y - height + 15;
+        const direction = ai.facingRight ? 1 : -1;
+        const ballX = ai.x + (direction * 23);
+
+        this.state.balls.push({
+            x: ballX,
+            y: armY,
+            velocityX: direction * BALL_SPEED,
+            owner: ai.side,
+            active: true
+        });
+    }
+
+    generateAIInputForPlayer(ai) {
+        const player1 = this.state.players.player1;
+        const input = { left: false, right: false, jump: false, duck: false, throw: false };
+
+        // Find incoming balls
+        const incomingBall = this.state.balls.find(ball => {
+            if (ball.owner === ai.side) return false;
+            const movingTowardAI = ball.velocityX > 0; // Moving right toward AI
+            const closeEnough = Math.abs(ball.x - ai.x) < 200;
+            return movingTowardAI && closeEnough;
+        });
+
+        if (incomingBall) {
+            // Dodge the ball
+            const aiHeight = ai.isDucking ? 35 : 60;
+            const aiTop = ai.y - aiHeight;
+            const aiBottom = ai.y;
+            const ballY = incomingBall.y;
+
+            if (ballY < aiTop + 20) {
+                input.duck = true;
+            } else if (ballY > aiBottom - 30 && !ai.isJumping) {
+                input.jump = true;
+            } else {
+                // Move away from ball path
+                input.right = Math.random() < 0.5;
+                input.left = !input.right;
+            }
+        } else if (ai.hasBall) {
+            // Has ball, consider throwing
+            if (Math.random() < 0.02) {
+                input.throw = true;
+                // Face player1 (left side)
+                ai.facingRight = false;
+            }
+            // Move around a bit
+            if (Math.random() < 0.1) {
+                input.left = Math.random() < 0.5;
+                input.right = !input.left;
+            }
+        } else {
+            // No ball, move around randomly
+            if (Math.random() < 0.05) {
+                input.left = Math.random() < 0.5;
+                input.right = !input.left;
+            }
+        }
+
+        return input;
+    }
+
     throwBall(playerNumber) {
         const player = this.state.players[playerNumber];
         if (!player.hasBall) return;
@@ -196,21 +372,42 @@ export class Game {
         for (const ball of this.state.balls) {
             if (!ball.active) continue;
 
-            for (const playerNumber of ['player1', 'player2']) {
-                const player = this.state.players[playerNumber];
-
-                // Don't hit the player who threw it
-                if (ball.owner === player.side) continue;
-
-                // Don't hit invincible players
-                if (player.isInvincible) continue;
-
-                // Check collision
-                if (this.checkBallPlayerCollision(ball, player)) {
+            // Check collision with player1
+            const player1 = this.state.players.player1;
+            if (ball.owner !== player1.side && !player1.isInvincible) {
+                if (this.checkBallPlayerCollision(ball, player1)) {
                     ball.active = false;
-                    player.lives--;
-                    player.isInvincible = true;
-                    player.invincibleTimer = INVINCIBLE_TIME;
+                    player1.lives--;
+                    player1.isInvincible = true;
+                    player1.invincibleTimer = INVINCIBLE_TIME;
+                    continue;
+                }
+            }
+
+            // Check collision with player2 or AI players
+            if (this.room.isSinglePlayer) {
+                for (const ai of this.state.aiPlayers) {
+                    if (ai.lives <= 0) continue;
+                    if (ball.owner === ai.side) continue;
+                    if (ai.isInvincible) continue;
+
+                    if (this.checkBallPlayerCollision(ball, ai)) {
+                        ball.active = false;
+                        ai.lives--;
+                        ai.isInvincible = true;
+                        ai.invincibleTimer = INVINCIBLE_TIME;
+                        break;
+                    }
+                }
+            } else {
+                const player2 = this.state.players.player2;
+                if (player2 && ball.owner !== player2.side && !player2.isInvincible) {
+                    if (this.checkBallPlayerCollision(ball, player2)) {
+                        ball.active = false;
+                        player2.lives--;
+                        player2.isInvincible = true;
+                        player2.invincibleTimer = INVINCIBLE_TIME;
+                    }
                 }
             }
         }
@@ -235,12 +432,32 @@ export class Game {
     }
 
     updateRespawnTimers() {
-        for (const playerNumber of ['player1', 'player2']) {
-            const player = this.state.players[playerNumber];
-            if (!player.hasBall) {
-                this.state.respawnTimers[playerNumber]--;
-                if (this.state.respawnTimers[playerNumber] <= 0) {
-                    player.hasBall = true;
+        // Player 1
+        const player1 = this.state.players.player1;
+        if (!player1.hasBall) {
+            this.state.respawnTimers.player1--;
+            if (this.state.respawnTimers.player1 <= 0) {
+                player1.hasBall = true;
+            }
+        }
+
+        // Player 2 or AI players
+        if (this.room.isSinglePlayer) {
+            for (const ai of this.state.aiPlayers) {
+                if (ai.lives <= 0) continue;
+                if (!ai.hasBall) {
+                    this.state.respawnTimers[ai.id]--;
+                    if (this.state.respawnTimers[ai.id] <= 0) {
+                        ai.hasBall = true;
+                    }
+                }
+            }
+        } else if (this.state.players.player2) {
+            const player2 = this.state.players.player2;
+            if (!player2.hasBall) {
+                this.state.respawnTimers.player2--;
+                if (this.state.respawnTimers.player2 <= 0) {
+                    player2.hasBall = true;
                 }
             }
         }
@@ -248,13 +465,31 @@ export class Game {
 
     checkGameOver() {
         const p1Lives = this.state.players.player1.lives;
-        const p2Lives = this.state.players.player2.lives;
 
-        if (p1Lives <= 0 || p2Lives <= 0) {
-            this.state.gameState = 'gameover';
-            this.state.winner = p1Lives > 0 ? 'player1' : 'player2';
-            this.stop();
-            this.broadcastState();
+        if (this.room.isSinglePlayer) {
+            // Check if all AI players are defeated
+            const allAIDefeated = this.state.aiPlayers.every(ai => ai.lives <= 0);
+
+            if (p1Lives <= 0) {
+                this.state.gameState = 'gameover';
+                this.state.winner = 'ai';
+                this.stop();
+                this.broadcastState();
+            } else if (allAIDefeated) {
+                this.state.gameState = 'levelcomplete';
+                this.state.winner = 'player1';
+                this.stop();
+                this.broadcastState();
+            }
+        } else {
+            const p2Lives = this.state.players.player2?.lives || 0;
+
+            if (p1Lives <= 0 || p2Lives <= 0) {
+                this.state.gameState = 'gameover';
+                this.state.winner = p1Lives > 0 ? 'player1' : 'player2';
+                this.stop();
+                this.broadcastState();
+            }
         }
     }
 
@@ -313,31 +548,56 @@ export class Game {
     }
 
     broadcastState() {
-        this.room.broadcast({
+        const stateToSend = {
             type: 'state',
-            ...this.state,
+            gameState: this.state.gameState,
+            level: this.state.level,
+            balls: this.state.balls,
+            winner: this.state.winner,
             players: {
                 player1: {
                     ...this.state.players.player1,
                     isAI: this.room.players.player1?.isAI || false
-                },
-                player2: {
-                    ...this.state.players.player2,
-                    isAI: this.room.players.player2?.isAI || false
                 }
             }
-        });
+        };
+
+        if (this.room.isSinglePlayer) {
+            // Send AI players array
+            stateToSend.aiPlayers = this.state.aiPlayers.map(ai => ({
+                ...ai,
+                isAI: true
+            }));
+        } else if (this.state.players.player2) {
+            stateToSend.players.player2 = {
+                ...this.state.players.player2,
+                isAI: this.room.players.player2?.isAI || false
+            };
+        }
+
+        this.room.broadcast(stateToSend);
     }
 
     reset() {
+        const level = this.room.level || 1;
+        const numAI = this.room.isSinglePlayer ? level : 1;
+
         this.state = {
             gameState: 'playing',
+            level: level,
             players: {
-                player1: this.createPlayer(150, 'left'),
-                player2: this.createPlayer(650, 'right')
+                player1: this.createPlayer(150, 'left')
             },
+            aiPlayers: [],
             balls: [],
-            respawnTimers: { player1: 0, player2: 0 }
+            respawnTimers: { player1: 0 }
         };
+
+        if (this.room.isSinglePlayer) {
+            this.createAIPlayers(numAI);
+        } else {
+            this.state.players.player2 = this.createPlayer(650, 'right');
+            this.state.respawnTimers.player2 = 0;
+        }
     }
 }
