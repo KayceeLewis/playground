@@ -1,0 +1,8 @@
+{
+  "name": "hit-me",
+  "version": "2.0.0",
+  "scripts": {
+    "start": "cd server && npm start",
+    "install-server": "cd server && npm install"
+  }
+}

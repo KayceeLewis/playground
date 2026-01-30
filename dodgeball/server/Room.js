@@ -1,0 +1,107 @@
+function generateRoomId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+
+export class Room {
+    constructor(id) {
+        this.id = id || generateRoomId();
+        this.players = {
+            player1: null,
+            player2: null
+        };
+        this.state = 'waiting'; // waiting, countdown, playing, gameover
+        this.createdAt = Date.now();
+    }
+
+    addPlayer(ws) {
+        if (!this.players.player1) {
+            this.players.player1 = { ws, connected: true, isAI: false };
+            return 'player1';
+        } else if (!this.players.player2) {
+            this.players.player2 = { ws, connected: true, isAI: false };
+            return 'player2';
+        }
+        return null; // Room full
+    }
+
+    removePlayer(playerNumber) {
+        if (this.players[playerNumber]) {
+            this.players[playerNumber].connected = false;
+            this.players[playerNumber].ws = null;
+            // AI takes over if game is in progress
+            if (this.state === 'playing') {
+                this.players[playerNumber].isAI = true;
+            }
+        }
+    }
+
+    reconnectPlayer(playerNumber, ws) {
+        if (this.players[playerNumber]) {
+            this.players[playerNumber].ws = ws;
+            this.players[playerNumber].connected = true;
+            this.players[playerNumber].isAI = false;
+        }
+    }
+
+    isFull() {
+        return this.players.player1 !== null && this.players.player2 !== null;
+    }
+
+    isEmpty() {
+        const p1Connected = this.players.player1?.connected;
+        const p2Connected = this.players.player2?.connected;
+        return !p1Connected && !p2Connected;
+    }
+
+    broadcast(message) {
+        const data = JSON.stringify(message);
+        if (this.players.player1?.ws?.readyState === 1) {
+            this.players.player1.ws.send(data);
+        }
+        if (this.players.player2?.ws?.readyState === 1) {
+            this.players.player2.ws.send(data);
+        }
+    }
+
+    sendTo(playerNumber, message) {
+        const player = this.players[playerNumber];
+        if (player?.ws?.readyState === 1) {
+            player.ws.send(JSON.stringify(message));
+        }
+    }
+}
+
+export class RoomManager {
+    constructor() {
+        this.rooms = new Map();
+    }
+
+    createRoom() {
+        const room = new Room();
+        this.rooms.set(room.id, room);
+        return room;
+    }
+
+    getRoom(roomId) {
+        return this.rooms.get(roomId);
+    }
+
+    deleteRoom(roomId) {
+        this.rooms.delete(roomId);
+    }
+
+    // Clean up old empty rooms
+    cleanup() {
+        const now = Date.now();
+        for (const [id, room] of this.rooms) {
+            if (room.isEmpty() && now - room.createdAt > 60000) {
+                this.rooms.delete(id);
+            }
+        }
+    }
+}
