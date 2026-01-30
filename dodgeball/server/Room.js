@@ -52,8 +52,9 @@ export class Room {
         if (this.players[playerNumber]) {
             this.players[playerNumber].connected = false;
             this.players[playerNumber].ws = null;
-            // AI takes over if game is in progress
-            if (this.state === 'playing') {
+            // AI takes over only if game is actively playing (not during countdown/waiting)
+            // This allows reconnection during page navigation
+            if (this.state === 'playing' && !this.players[playerNumber].isAI) {
                 this.players[playerNumber].isAI = true;
             }
         }
@@ -68,13 +69,14 @@ export class Room {
     }
 
     isFull() {
-        // A room is full only if both player slots are taken AND connected
-        // (or if it's a single-player room with AI)
-        const p1Taken = this.players.player1 !== null &&
-                        (this.players.player1.connected || this.players.player1.isAI);
-        const p2Taken = this.players.player2 !== null &&
-                        (this.players.player2.connected || this.players.player2.isAI);
-        return p1Taken && p2Taken;
+        // For single-player rooms, always consider full (AI is permanent opponent)
+        if (this.isSinglePlayer) {
+            return true;
+        }
+        // For multiplayer, room is full only if both players are actively connected
+        const p1Connected = this.players.player1?.connected === true;
+        const p2Connected = this.players.player2?.connected === true;
+        return p1Connected && p2Connected;
     }
 
     isEmpty() {
