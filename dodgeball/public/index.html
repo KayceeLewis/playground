@@ -12,8 +12,9 @@
         <p class="subtitle">Online Dodgeball</p>
 
         <div id="menu" class="menu">
-            <button id="createBtn" class="btn btn-primary">Create Game</button>
-            <div class="divider">or</div>
+            <button id="singlePlayerBtn" class="btn btn-primary">Play vs AI</button>
+            <div class="divider">or play online</div>
+            <button id="createBtn" class="btn btn-secondary">Create Game</button>
             <div class="join-section">
                 <input type="text" id="roomCode" placeholder="Enter room code" maxlength="6">
                 <button id="joinBtn" class="btn btn-secondary">Join Game</button>
@@ -46,6 +47,7 @@
         const shareUrlInput = document.getElementById('shareUrl');
         const roomCodeDisplay = document.getElementById('roomCodeDisplay');
         const copyBtn = document.getElementById('copyBtn');
+        const singlePlayerBtn = document.getElementById('singlePlayerBtn');
 
         // Check if joining from URL
         const pathMatch = window.location.pathname.match(/^\/game\/([A-Z0-9]{6})$/i);
@@ -85,6 +87,10 @@
                     break;
             }
         };
+
+        singlePlayerBtn.addEventListener('click', () => {
+            ws.send(JSON.stringify({ type: 'create', singlePlayer: true }));
+        });
 
         createBtn.addEventListener('click', () => {
             ws.send(JSON.stringify({ type: 'create' }));

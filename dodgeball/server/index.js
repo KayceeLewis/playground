@@ -49,7 +49,7 @@ wss.on('connection', (ws) => {
 function handleMessage(ws, message) {
     switch (message.type) {
         case 'create':
-            handleCreate(ws);
+            handleCreate(ws, message.singlePlayer);
             break;
         case 'join':
             handleJoin(ws, message.roomId);
@@ -62,7 +62,7 @@ function handleMessage(ws, message) {
     }
 }
 
-function handleCreate(ws) {
+function handleCreate(ws, singlePlayer = false) {
     const room = roomManager.createRoom();
     const playerNumber = room.addPlayer(ws);
     wsData.set(ws, { roomId: room.id, playerNumber });
@@ -73,7 +73,13 @@ function handleCreate(ws) {
         shareUrl: `/game/${room.id}`
     }));
 
-    console.log(`Room ${room.id} created`);
+    console.log(`Room ${room.id} created${singlePlayer ? ' (single player)' : ''}`);
+
+    // For single player mode, add AI as player 2 and start immediately
+    if (singlePlayer) {
+        room.players.player2 = { ws: null, connected: false, isAI: true };
+        startCountdown(room);
+    }
 }
 
 function handleJoin(ws, roomId) {
